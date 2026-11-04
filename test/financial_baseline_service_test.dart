@@ -1,0 +1,216 @@
+import 'package:flutter_test/flutter_test.dart';
+import 'package:pocket_ledger/models/financial_baseline.dart';
+import 'package:pocket_ledger/models/transaction.dart';
+import 'package:pocket_ledger/services/financial_baseline_service.dart';
+import 'package:pocket_ledger/services/financial_baseline_store.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+FinancialBaselineMapping _mapping(String merchant, BaselineGroup group) =>
+    FinancialBaselineMapping(merchantFingerprint: merchant, group: group);
+
+Transaction _transaction(
+  DateTime date,
+  double amount,
+  String description, {
+  String category = 'Bills',
+}) => Transaction(
+  date: date,
+  amount: amount,
+  category: category,
+  description: description,
+);
+
+void main() {
+  group('FinancialBaselineService', () {
+    final service = FinancialBaselineService();
+
+    test('maps normalized merchant descriptions directly to a group', () {
+      final matches = service.classify(
+        transactions: [
+          _transaction(DateTime(2025, 1), 80, ' ATMOS ENERGY WEB ID 900 '),
+          _transaction(DateTime(2025, 1), 40, 'OTHER UTILITY'),
+        ],
+        mappings: [_mapping('ATMOS ENERGY', BaselineGroup.essential)],
+      );
+
+      expect(matches.first.assignedGroup, BaselineGroup.essential);
+      expect(matches.last.assignedGroup, isNull);
+    });
+
+    test('overlapping group assignments are flagged, not double counted', () {
+      final transactions = [
+        _transaction(DateTime(2025, 1), 40, 'ONCOR'),
+        _transaction(DateTime(2025, 1), 80, 'ONCOR WATER BUNDLE'),
+      ];
+      final mappings = [
+        _mapping('ONCOR', BaselineGroup.essential),
+        _mapping('WATER', BaselineGroup.committed),
+      ];
+
+      final matches = service.classify(
+        transactions: transactions,
+        mappings: mappings,
+      );
+      final summary = service.summarize(
+        transactions: transactions,
+        mappings: mappings,
+      );
+
+      expect(matches.first.assignedGroup, BaselineGroup.essential);
+      expect(matches.last.needsReview, isTrue);
+      expect(summary.conflictCount, 1);
+      expect(summary.conflictAmount, 80);
+      expect(summary.essential.monthlyAverage, 40);
+      expect(summary.committed.monthlyAverage, 0);
+    });
+
+    test('ignores refunds, reversals, transfers and card payments', () {
+      final transactions = [
+        _transaction(DateTime(2025, 1), 20, 'Store refund'),
+        _transaction(DateTime(2025, 1), 30, 'Charge reversed'),
+        _transaction(DateTime(2025, 1), 50, 'Transfer to savings'),
+        _transaction(DateTime(2025, 1), 400, 'Credit card payment'),
+        _transaction(DateTime(2025, 1), -20, 'Store purchase'),
+        _transaction(DateTime(2025, 1), 15, 'Local market purchase'),
+      ];
+      final matches = service.classify(
+        transactions: transactions,
+        mappings: [_mapping('LOCAL MARKET', BaselineGroup.essential)],
+      );
+      final summary = service.summarize(
+        transactions: transactions,
+        mappings: [_mapping('LOCAL MARKET', BaselineGroup.essential)],
+      );
+
+      expect(matches.take(5).every((match) => match.isIgnored), isTrue);
+      expect(matches.last.assignedGroup, BaselineGroup.essential);
+      expect(summary.ignoredCount, 5);
+      expect(summary.essential.monthlyAverage, 15);
+    });
+
+    test('excludes institution-coded transfers from all baseline totals', () {
+      final summary = service.summarize(
+        transactions: [
+          _transaction(DateTime(2025, 1), 300, 'FID BKG SVC LLC DES:MONEYLINE'),
+          _transaction(DateTime(2025, 1), 50, 'LOCAL MARKET'),
+        ],
+        mappings: [
+          _mapping('FID BKG SVC', BaselineGroup.essential),
+          _mapping('LOCAL MARKET', BaselineGroup.discretionary),
+        ],
+      );
+
+      expect(summary.ignoredCount, 1);
+      expect(summary.trackedSpending, 50);
+      expect(summary.essential.monthlyAverage, 0);
+      expect(summary.discretionary.monthlyAverage, 50);
+    });
+
+    test(
+      'normalizes historical monthly spend and leaves unassigned visible',
+      () {
+        final summary = service.summarize(
+          transactions: [
+            _transaction(DateTime(2025, 1, 3), 120, 'Rent'),
+            _transaction(DateTime(2025, 3, 3), 60, 'Rent'),
+            _transaction(DateTime(2025, 2, 4), 35, 'Unknown'),
+          ],
+          mappings: [_mapping('RENT', BaselineGroup.essential)],
+        );
+
+        expect(summary.monthCount, 3);
+        expect(summary.essential.monthlyAverage, 60);
+        expect(summary.essential.annualizedAmount, 720);
+        expect(summary.unclassifiedAmount, 35);
+        expect(summary.trackedSpending, 215);
+      },
+    );
+
+    test('potentially flexible includes committed and discretionary', () {
+      final summary = service.summarize(
+        transactions: [
+          _transaction(DateTime(2025, 2), 300, 'Rent'),
+          _transaction(DateTime(2025, 2), 50, 'Gym'),
+          _transaction(DateTime(2025, 2), 25, 'Coffee'),
+        ],
+        mappings: [
+          _mapping('RENT', BaselineGroup.essential),
+          _mapping('GYM', BaselineGroup.committed),
+          _mapping('COFFEE', BaselineGroup.discretionary),
+        ],
+      );
+      expect(summary.potentiallyFlexible.monthlyAverage, 75);
+      expect(summary.potentiallyFlexible.annualizedAmount, 900);
+    });
+  });
+
+  group('FinancialBaselineProvider', () {
+    test('mapping updates retain complete transaction history', () {
+      final history = [
+        _transaction(DateTime(2023, 1), 100, 'Old bill'),
+        _transaction(DateTime(2025, 1), 200, 'Recent bill'),
+      ];
+      final provider = FinancialBaselineProvider(
+        transactions: history,
+        mappings: [_mapping('OLD BILL', BaselineGroup.essential)],
+      );
+
+      provider.updateMappings([
+        _mapping('RECENT BILL', BaselineGroup.committed),
+      ]);
+
+      expect(provider.transactions, hasLength(2));
+      expect(provider.transactions.first.date, DateTime(2023, 1));
+      expect(provider.summary.monthCount, 25);
+      provider.dispose();
+    });
+  });
+
+  group('FinancialBaselineStore', () {
+    const accountOneKey = 'financial_baseline_mappings_v2_person@email.com';
+    const legacyKey = 'financial_baseline_rules_v1_person@email.com';
+
+    setUp(() {
+      SharedPreferences.setMockInitialValues({});
+    });
+
+    test('round-trips direct merchant group mappings by account', () async {
+      final firstStore = FinancialBaselineStore(accountKey: 'Person@Email.com');
+      final secondStore = FinancialBaselineStore(accountKey: 'other@email.com');
+      final mappings = [
+        _mapping('ONCOR', BaselineGroup.essential),
+        _mapping('NETFLIX', BaselineGroup.committed),
+      ];
+
+      await firstStore.saveMappings(mappings);
+
+      expect(await firstStore.loadMappings(), mappings);
+      expect(await secondStore.loadMappings(), isEmpty);
+      final preferences = await SharedPreferences.getInstance();
+      expect(preferences.getString(accountOneKey), isNotNull);
+    });
+
+    test(
+      'migrates legacy expense type keyword rows into direct mappings',
+      () async {
+        SharedPreferences.setMockInitialValues({
+          legacyKey:
+              '[{"id":"utilities","name":"Utilities","group":"Essential","keywords":["ONCOR","ATMOS ENERGY"]},'
+              '{"id":"streaming","name":"Streaming","group":"Committed","keywords":["NETFLIX"]},'
+              '{"id":"empty","name":"Unused type","group":"Discretionary","keywords":[]}]',
+        });
+        final store = FinancialBaselineStore(accountKey: 'Person@Email.com');
+
+        final mappings = await store.loadMappings();
+
+        expect(mappings, [
+          _mapping('ONCOR', BaselineGroup.essential),
+          _mapping('ATMOS ENERGY', BaselineGroup.essential),
+          _mapping('NETFLIX', BaselineGroup.committed),
+        ]);
+        final preferences = await SharedPreferences.getInstance();
+        expect(preferences.getString(accountOneKey), isNotNull);
+      },
+    );
+  });
+}

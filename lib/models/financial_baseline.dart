@@ -1,0 +1,76 @@
+enum BaselineGroup {
+  essential('Essential'),
+  committed('Committed'),
+  discretionary('Discretionary');
+
+  const BaselineGroup(this.label);
+
+  final String label;
+
+  static BaselineGroup parse(Object? value) {
+    final normalized = value?.toString().trim().toLowerCase();
+    for (final group in BaselineGroup.values) {
+      if (group.label.toLowerCase() == normalized ||
+          group.name.toLowerCase() == normalized) {
+        return group;
+      }
+    }
+    throw FormatException('Unknown financial baseline group: $value');
+  }
+}
+
+class FinancialBaselineMapping {
+  const FinancialBaselineMapping({
+    required this.merchantFingerprint,
+    required this.group,
+  });
+
+  final String merchantFingerprint;
+  final BaselineGroup group;
+
+  String get id => '${group.name}:${merchantFingerprint.trim().toLowerCase()}';
+
+  @override
+  bool operator ==(Object other) =>
+      other is FinancialBaselineMapping &&
+      other.merchantFingerprint == merchantFingerprint &&
+      other.group == group;
+
+  @override
+  int get hashCode => Object.hash(merchantFingerprint, group);
+
+  Map<String, Object?> toJson() => {
+    'merchant': merchantFingerprint,
+    'group': group.label,
+  };
+
+  factory FinancialBaselineMapping.fromJson(Map<String, dynamic> json) =>
+      FinancialBaselineMapping(
+        merchantFingerprint:
+            (json['merchant'] ?? json['merchantFingerprint'] ?? '').toString(),
+        group: BaselineGroup.parse(json['group']),
+      );
+
+  static List<FinancialBaselineMapping> migrateStoredRows(Iterable rows) {
+    final mappings = <FinancialBaselineMapping>[];
+    final seen = <String>{};
+    for (final row in rows) {
+      if (row is! Map) continue;
+      final json = Map<String, dynamic>.from(row);
+      final group = BaselineGroup.parse(json['group']);
+      final merchants = json['keywords'] is List
+          ? (json['keywords'] as List).map((value) => value.toString())
+          : [json['merchant']?.toString() ?? ''];
+      for (final merchant in merchants) {
+        final fingerprint = merchant.trim();
+        if (fingerprint.isEmpty) continue;
+        final mapping = FinancialBaselineMapping(
+          merchantFingerprint: fingerprint,
+          group: group,
+        );
+        if (seen.add(mapping.id)) mappings.add(mapping);
+      }
+    }
+    return List.unmodifiable(mappings);
+  }
+}
