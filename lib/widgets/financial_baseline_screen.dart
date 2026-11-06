@@ -46,7 +46,16 @@ class _FinancialBaselineScreenState extends State<FinancialBaselineScreen> {
   _MerchantSort _merchantSort = _MerchantSort.highestSpending;
   bool _isSaving = false;
   bool _draftRestored = false;
+  bool _saveReminderShownForBatch = false;
+  bool _organizedExpanded = false;
+  String? _saveStatus;
   final List<String> _draftConflictMerchants = [];
+  final Map<BaselineGroup, TextEditingController> _groupSearchControllers = {};
+  final Map<BaselineGroup, FocusNode> _groupSearchFocusNodes = {};
+  final TextEditingController _unassignedSearchController =
+      TextEditingController();
+  final TextEditingController _organizedSearchController =
+      TextEditingController();
 
   @override
   void initState() {
@@ -80,6 +89,8 @@ class _FinancialBaselineScreenState extends State<FinancialBaselineScreen> {
 
   @override
   void dispose() {
+    _unassignedSearchController.dispose();
+    _organizedSearchController.dispose();
     _provider.dispose();
     super.dispose();
   }
@@ -229,6 +240,18 @@ class _FinancialBaselineScreenState extends State<FinancialBaselineScreen> {
     await _saveMappings(updated, showSuccessMessage: false);
   }
 
+  void _selectMerchantFromSearch(
+    BaselineGroup group,
+    DiscoveredMerchant merchant,
+  ) {
+    _groupSearchControllers[group]?.clear();
+    _groupSearchFocusNodes[group]?.requestFocus();
+    _assignMerchants([merchant], group);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _groupSearchFocusNodes[group]?.requestFocus();
+    });
+  }
+
   Future<void> _unassignMerchant(FinancialBaselineMapping mapping) async {
     final updated = _mappings.where((candidate) => candidate.id != mapping.id);
     await _saveMappings(updated, showSuccessMessage: false);
@@ -238,10 +261,48 @@ class _FinancialBaselineScreenState extends State<FinancialBaselineScreen> {
     Iterable<FinancialBaselineMapping> mappings, {
     bool showSuccessMessage = true,
   }) async {
+    final previousChangedCount = _changedCount;
     _provider.updateMappings(mappings);
     setState(() {
       _mappings = _provider.mappings;
+      _saveStatus = null;
     });
+    if (!_saveReminderShownForBatch &&
+        previousChangedCount < 20 &&
+        _changedCount >= 20) {
+      _saveReminderShownForBatch = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(
+            SnackBar(
+              key: const ValueKey('baseline-save-reminder'),
+              content: Row(
+                children: [
+                  const Expanded(
+                    child: Text(
+                      "You've organized 20 merchants. Your changes are kept in a local draft.",
+                    ),
+                  ),
+                  TextButton(
+                    key: const ValueKey('baseline-reminder-continue'),
+                    onPressed: () =>
+                        ScaffoldMessenger.of(context).hideCurrentSnackBar(),
+                    child: const Text('Continue'),
+                  ),
+                ],
+              ),
+              duration: const Duration(seconds: 10),
+              action: SnackBarAction(
+                label: 'Save Now',
+                onPressed: _commitDraft,
+              ),
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+      });
+    }
     try {
       await widget.onDraftChanged?.call(
         FinancialBaselineDraft(
@@ -270,7 +331,13 @@ class _FinancialBaselineScreenState extends State<FinancialBaselineScreen> {
       );
       _committedMappings = List.of(_mappings);
       await widget.onDraftCleared?.call();
-      if (mounted) setState(() => _draftRestored = false);
+      if (mounted) {
+        setState(() {
+          _saveReminderShownForBatch = false;
+          _draftRestored = false;
+          _saveStatus = message ?? 'Saved locally.';
+        });
+      }
       if (mounted) _showMessage(message ?? 'Baseline changes saved.');
     } catch (error) {
       if (mounted) _showMessage('Changes remain in your local draft: $error');
@@ -284,32 +351,24 @@ class _FinancialBaselineScreenState extends State<FinancialBaselineScreen> {
     await widget.onDraftCleared?.call();
     if (!mounted) return;
     setState(() {
+      _saveReminderShownForBatch = false;
       _mappings = _provider.mappings;
       _draftRestored = false;
+      _saveStatus = null;
     });
   }
 
   Widget _buildOrganizer(ColorScheme colors) {
-    final unassigned = _unassignedMerchants;
     return Container(
       key: const ValueKey('organize-your-spending'),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: colors.surfaceContainerLow,
-        borderRadius: BorderRadius.circular(14),
-      ),
+      padding: const EdgeInsets.symmetric(vertical: 4),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
             'Organize Your Spending',
-            style: Theme.of(context).textTheme.titleLarge
+            style: Theme.of(context).textTheme.headlineSmall
                 ?.copyWith(fontWeight: FontWeight.w800),
-          ),
-          const SizedBox(height: 3),
-          Text(
-            'Assign merchants to lifestyle groups to understand what you need, what you’re committed to, and where you can reduce spending.',
-            style: Theme.of(context).textTheme.bodySmall,
           ),
           if (_draftConflictMerchants.isNotEmpty)
             Padding(
@@ -321,136 +380,394 @@ class _FinancialBaselineScreenState extends State<FinancialBaselineScreen> {
                     ?.copyWith(color: colors.error),
               ),
             ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 8),
           LayoutBuilder(
             builder: (context, constraints) {
-              final columns = constraints.maxWidth >= 850 ? 2 : 1;
-              final width =
-                  (constraints.maxWidth - (columns - 1) * 8) / columns;
-              return Wrap(
-                spacing: 8,
-                runSpacing: 8,
+              final groups = Column(
                 children: [
-                  for (final group in BaselineGroup.values)
-                    SizedBox(
-                      width: width,
-                      child: _buildGroupCard(
-                        group,
-                        _provider.summary.metrics[group]!,
-                        colors,
-                      ),
-                    ),
+                  for (final group in BaselineGroup.values) ...[
+                    _buildGroupCard(group, colors),
+                    if (group != BaselineGroup.values.last)
+                      const SizedBox(height: 7),
+                  ],
+                ],
+              );
+              final left = Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  groups,
+                  const SizedBox(height: 8),
+                  _buildOrganizedPanel(colors),
+                ],
+              );
+              if (constraints.maxWidth < 850) {
+                return Column(
+                  key: const ValueKey('baseline-narrow-layout'),
+                  children: [
+                    left,
+                    const SizedBox(height: 10),
+                    _buildUnassignedPanel(colors, compact: false),
+                  ],
+                );
+              }
+              return Row(
+                key: const ValueKey('baseline-wide-layout'),
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(flex: 5, child: left),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    flex: 4,
+                    child: _buildUnassignedPanel(colors, compact: true),
+                  ),
                 ],
               );
             },
           ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  'Merchants to Organize',
-                  style: Theme.of(context).textTheme.titleMedium
-                      ?.copyWith(fontWeight: FontWeight.w800),
-                ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildUnassignedPanel(ColorScheme colors, {required bool compact}) {
+    final query = _normalizedFingerprint(_unassignedSearchController.text);
+    final matches = _unassignedMerchants
+        .where((merchant) {
+          if (query.isEmpty) return true;
+          return _normalizedFingerprint(merchant.merchantFingerprint)
+                  .contains(query) ||
+              (_merchantSearchIndex[_stateKey(merchant)]?.contains(query) ??
+                  false);
+        })
+        .take(20)
+        .toList(growable: false);
+    final list = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                'Merchants to Organize',
+                style: Theme.of(context).textTheme.titleMedium
+                    ?.copyWith(fontWeight: FontWeight.w800),
               ),
-              Text(
-                '${unassigned.length} remaining',
-                style: Theme.of(context).textTheme.labelMedium,
-              ),
-            ],
-          ),
-          const SizedBox(height: 5),
-          DropdownButtonFormField<_MerchantSort>(
-            key: const ValueKey('merchant-sort-order'),
-            initialValue: _merchantSort,
-            isDense: true,
-            decoration: const InputDecoration(
-              labelText: 'Sort merchants',
-              border: OutlineInputBorder(),
-              contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
             ),
-            items: const [
-              DropdownMenuItem(
-                value: _MerchantSort.highestSpending,
-                child: Text('Highest total spending'),
-              ),
-              DropdownMenuItem(
-                value: _MerchantSort.mostTransactions,
-                child: Text('Most transactions'),
-              ),
-              DropdownMenuItem(
-                value: _MerchantSort.merchantName,
-                child: Text('Merchant name'),
-              ),
-            ],
-            onChanged: (value) {
-              if (value != null) setState(() => _merchantSort = value);
-            },
+            Text(
+              '${_unassignedMerchants.length} left · ${matches.length} shown',
+              key: const ValueKey('unassigned-visible-count'),
+              style: Theme.of(context).textTheme.labelSmall,
+            ),
+          ],
+        ),
+        const SizedBox(height: 6),
+        TextField(
+          key: const ValueKey('unassigned-merchant-search'),
+          controller: _unassignedSearchController,
+          onChanged: (_) => setState(() {}),
+          decoration: InputDecoration(
+            isDense: true,
+            prefixIcon: const Icon(Icons.search),
+            hintText: 'Search all unassigned merchants',
+            suffixIcon: query.isEmpty
+                ? null
+                : IconButton(
+                    key: const ValueKey('clear-unassigned-search'),
+                    tooltip: 'Clear search',
+                    onPressed: () {
+                      _unassignedSearchController.clear();
+                      setState(() {});
+                    },
+                    icon: const Icon(Icons.close),
+                  ),
+            border: const OutlineInputBorder(),
           ),
-          const SizedBox(height: 5),
-          if (unassigned.isEmpty)
-            const Padding(
-              padding: EdgeInsets.all(8),
-              child: Text('All discovered merchants are assigned.'),
+        ),
+        Row(
+          children: [
+            const Text('Sort by'),
+            const SizedBox(width: 6),
+            DropdownButton<_MerchantSort>(
+              key: const ValueKey('merchant-sort-order'),
+              value: _merchantSort,
+              isDense: true,
+              underline: const SizedBox.shrink(),
+              items: const [
+                DropdownMenuItem(
+                  value: _MerchantSort.highestSpending,
+                  child: Text('Total spending'),
+                ),
+                DropdownMenuItem(
+                  value: _MerchantSort.mostTransactions,
+                  child: Text('Transactions'),
+                ),
+                DropdownMenuItem(
+                  value: _MerchantSort.merchantName,
+                  child: Text('Name'),
+                ),
+              ],
+              onChanged: (value) {
+                if (value != null) setState(() => _merchantSort = value);
+              },
+            ),
+          ],
+        ),
+        Expanded(
+          child: matches.isEmpty
+              ? Center(
+                  child: Text(
+                    query.isEmpty
+                        ? 'All merchants are assigned.'
+                        : 'No merchants match your search.',
+                  ),
+                )
+              : ListView.separated(
+                  key: const ValueKey('unassigned-merchant-list'),
+                  itemCount: matches.length,
+                  separatorBuilder: (_, _) =>
+                      Divider(height: 1, color: colors.outlineVariant),
+                  itemBuilder: (context, index) {
+                    final merchant = matches[index];
+                    return Padding(
+                      key: ValueKey('unassigned-${_stateKey(merchant)}'),
+                      padding: const EdgeInsets.symmetric(vertical: 5),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  merchant.merchantFingerprint,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: Theme.of(context).textTheme.bodyMedium
+                                      ?.copyWith(fontWeight: FontWeight.w700),
+                                ),
+                                Text(
+                                  '${formatFullCurrency(merchant.totalAmount, widget.currencySymbol)} · ${merchant.occurrenceCount} transactions',
+                                  style: Theme.of(context).textTheme.labelSmall,
+                                ),
+                              ],
+                            ),
+                          ),
+                          TextButton(
+                            key: ValueKey(
+                              'assign-merchant-${_stateKey(merchant)}',
+                            ),
+                            onPressed: _isSaving
+                                ? null
+                                : () => _chooseGroup([merchant]),
+                            child: const Text('Assign'),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+        ),
+      ],
+    );
+    return Container(
+      key: const ValueKey('unassigned-merchants-panel'),
+      height: compact
+          ? (MediaQuery.sizeOf(context).height * .72).clamp(430, 720).toDouble()
+          : 480,
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: colors.surfaceContainerLow,
+        border: Border.all(color: colors.outlineVariant),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: list,
+    );
+  }
+
+  Widget _buildOrganizedPanel(ColorScheme colors) {
+    final query = _normalizedFingerprint(_organizedSearchController.text);
+    final assigned =
+        _mappings.where((mapping) {
+          if (query.isEmpty) return true;
+          return _normalizedFingerprint(mapping.merchantFingerprint)
+                  .contains(query) ||
+              (_merchantSearchIndex[_normalizedFingerprint(
+                        mapping.merchantFingerprint,
+                      )]
+                      ?.contains(query) ??
+                  false);
+        }).toList()..sort((a, b) {
+          final groupOrder = a.group.index.compareTo(b.group.index);
+          return groupOrder != 0
+              ? groupOrder
+              : a.merchantFingerprint.toLowerCase().compareTo(
+                  b.merchantFingerprint.toLowerCase(),
+                );
+        });
+    return Card(
+      margin: EdgeInsets.zero,
+      clipBehavior: Clip.antiAlias,
+      child: ExpansionTile(
+        key: const ValueKey('organized-merchants-expansion'),
+        initiallyExpanded: _organizedExpanded,
+        onExpansionChanged: (expanded) =>
+            setState(() => _organizedExpanded = expanded),
+        tilePadding: const EdgeInsets.symmetric(horizontal: 10),
+        childrenPadding: const EdgeInsets.fromLTRB(10, 0, 10, 10),
+        title: Text(
+          'Organized Merchants (${_mappings.length})',
+          key: const ValueKey('organized-merchants-title'),
+          style: Theme.of(context).textTheme.titleSmall
+              ?.copyWith(fontWeight: FontWeight.w800),
+        ),
+        subtitle: const Text(
+          'Review or change merchants you\'ve already assigned.',
+        ),
+        children: [
+          TextField(
+            key: const ValueKey('organized-merchant-search'),
+            controller: _organizedSearchController,
+            onChanged: (_) => setState(() {}),
+            decoration: InputDecoration(
+              isDense: true,
+              prefixIcon: const Icon(Icons.search),
+              hintText: 'Search assigned merchants',
+              border: const OutlineInputBorder(),
+              suffixIcon: query.isEmpty
+                  ? null
+                  : IconButton(
+                      key: const ValueKey('clear-organized-search'),
+                      tooltip: 'Clear search',
+                      onPressed: () {
+                        _organizedSearchController.clear();
+                        setState(() {});
+                      },
+                      icon: const Icon(Icons.close),
+                    ),
+            ),
+          ),
+          const SizedBox(height: 6),
+          if (assigned.isEmpty)
+            Padding(
+              padding: const EdgeInsets.all(12),
+              child: Text(
+                query.isEmpty
+                    ? 'No assigned merchants yet.'
+                    : 'No assigned merchants match your search.',
+              ),
             )
           else
-            Column(
-              key: const ValueKey('unassigned-merchant-list'),
-              children: [
-                for (final merchant in unassigned.take(20))
-                  Material(
-                    color: Colors.transparent,
-                    child: ListTile(
-                      key: ValueKey('unassigned-${_stateKey(merchant)}'),
-                      dense: true,
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 4),
-                      leading: const Icon(Icons.storefront_outlined),
-                      title: Text(
-                        merchant.merchantFingerprint,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxHeight: 300),
+              child: ListView(
+                key: const ValueKey('organized-merchant-list'),
+                shrinkWrap: true,
+                children: [
+                  for (final group in BaselineGroup.values) ...[
+                    if (assigned.any((mapping) => mapping.group == group))
+                      Padding(
+                        padding: const EdgeInsets.only(top: 6, bottom: 2),
+                        child: Row(
+                          children: [
+                            Icon(
+                              _groupIcon(group),
+                              size: 17,
+                              color: _groupColor(group),
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              group.label,
+                              style: Theme.of(context).textTheme.labelLarge
+                                  ?.copyWith(
+                                    color: _groupColor(group),
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                            ),
+                          ],
+                        ),
                       ),
-                      subtitle: Text(
-                        '${formatFullCurrency(merchant.totalAmount, widget.currencySymbol)} total · ${merchant.occurrenceCount} transactions · ${formatFullCurrency(merchant.averageAmount, widget.currencySymbol)} average',
+                    for (final mapping in assigned.where(
+                      (mapping) => mapping.group == group,
+                    ))
+                      Row(
+                        key: ValueKey(
+                          'organized-${group.name}-${_normalizedFingerprint(mapping.merchantFingerprint)}',
+                        ),
+                        children: [
+                          Expanded(
+                            child: Text(
+                              mapping.merchantFingerprint,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          PopupMenuButton<String>(
+                            key: ValueKey(
+                              'organized-actions-${_normalizedFingerprint(mapping.merchantFingerprint)}',
+                            ),
+                            tooltip: 'Change assignment or remove',
+                            enabled: !_isSaving,
+                            onSelected: (action) {
+                              if (action == 'remove') {
+                                _unassignMerchant(mapping);
+                              } else if (action.startsWith('move:')) {
+                                final destination = BaselineGroup.values
+                                    .firstWhere(
+                                      (candidate) =>
+                                          candidate.name == action.substring(5),
+                                    );
+                                if (destination != mapping.group) {
+                                  _replaceMappingGroup(mapping, destination);
+                                }
+                              }
+                            },
+                            itemBuilder: (context) => [
+                              for (final destination in BaselineGroup.values)
+                                PopupMenuItem<String>(
+                                  value: 'move:${destination.name}',
+                                  enabled: destination != mapping.group,
+                                  child: Text('Move to ${destination.label}'),
+                                ),
+                              const PopupMenuDivider(),
+                              const PopupMenuItem<String>(
+                                value: 'remove',
+                                child: Text('Remove assignment'),
+                              ),
+                            ],
+                          ),
+                        ],
                       ),
-                      trailing: Icon(
-                        Icons.add_circle_outline,
-                        color: colors.primary,
-                      ),
-                      onTap: _isSaving ? null : () => _chooseGroup([merchant]),
-                    ),
-                  ),
-              ],
+                  ],
+                ],
+              ),
             ),
         ],
       ),
     );
   }
 
-  Widget _buildGroupCard(
+  Future<void> _replaceMappingGroup(
+    FinancialBaselineMapping mapping,
     BaselineGroup group,
-    BaselineGroupMetrics metrics,
-    ColorScheme colors,
-  ) {
+  ) async {
+    final updated = _mappings.where((item) => item.id != mapping.id).toList()
+      ..add(
+        FinancialBaselineMapping(
+          merchantFingerprint: mapping.merchantFingerprint,
+          group: group,
+        ),
+      );
+    await _saveMappings(updated, showSuccessMessage: false);
+  }
+
+  Widget _buildGroupCard(BaselineGroup group, ColorScheme colors) {
     final mappings = _mappings
         .where((mapping) => mapping.group == group)
         .toList(growable: false);
     final available = _unassignedMerchants;
     final tint = _groupColor(group);
-    final description = switch (group) {
-      BaselineGroup.essential =>
-        'Must maintain · basic groceries, utilities, transport, healthcare',
-      BaselineGroup.committed =>
-        'Obligations · housing, loans, contracts, insurance',
-      BaselineGroup.discretionary =>
-        'Easiest to cut · optional shopping, entertainment, subscriptions',
-      BaselineGroup.potentiallyFlexible =>
-        'Optimize · dining, phone or internet, travel, vehicle costs',
-    };
     return Container(
       key: ValueKey('baseline-group-${group.name}'),
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.fromLTRB(10, 7, 10, 8),
       decoration: BoxDecoration(
         color: colors.surface,
         border: Border.all(color: colors.outlineVariant),
@@ -471,18 +788,12 @@ class _FinancialBaselineScreenState extends State<FinancialBaselineScreen> {
                 ),
               ),
               Text(
-                '${formatFullCurrency(metrics.monthlyAverage, widget.currencySymbol)} / mo',
-                key: ValueKey('baseline-group-average-${group.name}'),
-                style: Theme.of(context).textTheme.labelLarge
-                    ?.copyWith(fontWeight: FontWeight.w800),
+                '${mappings.length} assigned',
+                style: Theme.of(context).textTheme.labelSmall,
               ),
             ],
           ),
-          Text(
-            '${mappings.length} merchants assigned',
-            style: Theme.of(context).textTheme.labelSmall,
-          ),
-          const SizedBox(height: 5),
+          const SizedBox(height: 3),
           Autocomplete<DiscoveredMerchant>(
             key: ValueKey('group-autocomplete-${group.name}'),
             displayStringForOption: (merchant) => merchant.merchantFingerprint,
@@ -503,7 +814,8 @@ class _FinancialBaselineScreenState extends State<FinancialBaselineScreen> {
                   )
                   .take(12);
             },
-            onSelected: (merchant) => _assignMerchants([merchant], group),
+            onSelected: (merchant) =>
+                _selectMerchantFromSearch(group, merchant),
             optionsViewBuilder: (context, onSelected, options) => Align(
               alignment: Alignment.topLeft,
               child: Material(
@@ -535,344 +847,351 @@ class _FinancialBaselineScreenState extends State<FinancialBaselineScreen> {
               ),
             ),
             fieldViewBuilder:
-                (context, controller, focusNode, onFieldSubmitted) => TextField(
-                  key: ValueKey('group-search-${group.name}'),
-                  controller: controller,
-                  focusNode: focusNode,
-                  textInputAction: TextInputAction.search,
-                  decoration: InputDecoration(
-                    isDense: true,
-                    prefixIcon: const Icon(Icons.search),
-                    hintText: 'Add merchant',
-                    border: const OutlineInputBorder(),
-                    contentPadding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 8,
-                    ),
-                  ),
-                ),
-          ),
-          Padding(
-            padding: const EdgeInsets.only(left: 31, top: 2),
-            child: Text(
-              '${formatFullCurrency(metrics.annualizedAmount, widget.currencySymbol)} / yr normalized',
-              style: Theme.of(context).textTheme.labelSmall,
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.only(left: 31, top: 3),
-            child: Text(
-              description,
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-          ),
-          if (mappings.isEmpty)
-            Padding(
-              padding: const EdgeInsets.only(left: 31, top: 7),
-              child: Text(
-                'No merchants assigned',
-                style: Theme.of(context).textTheme.bodySmall
-                    ?.copyWith(color: colors.onSurfaceVariant),
-              ),
-            )
-          else
-            Padding(
-              padding: const EdgeInsets.only(left: 27, top: 4),
-              child: Wrap(
-                spacing: 3,
-                runSpacing: 0,
-                children: [
-                  for (final mapping in mappings)
-                    InputChip(
-                      key: ValueKey(
-                        'mapped-${group.name}-${mapping.merchantFingerprint.toLowerCase()}',
+                (context, controller, focusNode, onFieldSubmitted) {
+                  _groupSearchControllers[group] = controller;
+                  _groupSearchFocusNodes[group] = focusNode;
+                  return TextField(
+                    key: ValueKey('group-search-${group.name}'),
+                    controller: controller,
+                    focusNode: focusNode,
+                    textInputAction: TextInputAction.search,
+                    decoration: InputDecoration(
+                      isDense: true,
+                      prefixIcon: const Icon(Icons.search),
+                      prefixIconConstraints: const BoxConstraints(
+                        minWidth: 32,
+                        minHeight: 32,
                       ),
-                      visualDensity: VisualDensity.compact,
-                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      label: Text(mapping.merchantFingerprint),
-                      onPressed: _isSaving
-                          ? null
-                          : () {
-                              final merchant = _merchants
-                                  .where(
-                                    (item) =>
-                                        _stateKey(item) ==
-                                        _normalizedFingerprint(
-                                          mapping.merchantFingerprint,
-                                        ),
-                                  )
-                                  .firstOrNull;
-                              if (merchant != null) _chooseGroup([merchant]);
-                            },
-                      onDeleted: _isSaving
-                          ? null
-                          : () => _unassignMerchant(mapping),
-                      deleteIcon: const Icon(Icons.close, size: 15),
+                      hintText: 'Add merchant',
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 5,
+                        vertical: 6,
+                      ),
                     ),
+                  );
+                },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildClassificationProgress(
+    FinancialBaselineSummary summary,
+    ColorScheme colors,
+  ) {
+    final percentage = summary.classifiedPercentage;
+    return Card(
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final progress = Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Wrap(
+                  spacing: 12,
+                  runSpacing: 2,
+                  children: [
+                    Text(
+                      '${percentage.toStringAsFixed(0)}% classified by spending amount',
+                      style: Theme.of(context).textTheme.labelLarge
+                          ?.copyWith(fontWeight: FontWeight.w700),
+                    ),
+                    Text(
+                      '${formatFullCurrency(summary.unclassifiedMonthlyAverage, widget.currencySymbol)} / mo unclassified',
+                      style: Theme.of(context).textTheme.labelSmall,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 5),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: LinearProgressIndicator(
+                    key: const ValueKey('classification-progress'),
+                    value: percentage / 100,
+                    minHeight: 6,
+                    color: colors.primary,
+                    backgroundColor: colors.errorContainer,
+                  ),
+                ),
+              ],
+            );
+            final action = OutlinedButton.icon(
+              key: const ValueKey('view-baseline-insights'),
+              onPressed: _openInsights,
+              icon: const Icon(Icons.insights_outlined, size: 18),
+              label: const Text('View Insights'),
+            );
+            if (constraints.maxWidth < 550) {
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  progress,
+                  Align(alignment: Alignment.centerRight, child: action),
                 ],
-              ),
-            ),
-        ],
+              );
+            }
+            return Row(
+              children: [
+                Expanded(child: progress),
+                const SizedBox(width: 10),
+                action,
+              ],
+            );
+          },
+        ),
       ),
     );
   }
 
-  Widget _buildMetric(
-    String title,
-    double monthly,
-    double annual,
-    Color color,
-  ) => Container(
-    key: ValueKey(
-      'baseline-metric-${title.toLowerCase().replaceAll(' ', '-')}',
-    ),
-    padding: const EdgeInsets.all(9),
-    decoration: BoxDecoration(
-      color: color.withValues(alpha: 0.07),
-      border: Border.all(color: color.withValues(alpha: 0.2)),
-      borderRadius: BorderRadius.circular(9),
-    ),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          title.toUpperCase(),
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: Theme.of(context).textTheme.labelSmall
-              ?.copyWith(color: color, fontWeight: FontWeight.w800),
-        ),
-        const SizedBox(height: 3),
-        Text(
-          '${formatFullCurrency(monthly, widget.currencySymbol)} / mo',
-          style: Theme.of(context).textTheme.titleSmall
-              ?.copyWith(fontWeight: FontWeight.w800),
-        ),
-        Text(
-          '${formatFullCurrency(annual, widget.currencySymbol)} / yr normalized',
-          style: Theme.of(context).textTheme.labelSmall,
-        ),
-      ],
-    ),
-  );
-
-  Widget _buildUnderstandingSection(
-    FinancialBaselineSummary summary,
-    ColorScheme colors,
-  ) {
-    final identified = summary.identifiedBaselineMonthlyAverage;
-    final adjustable = summary.potentiallyAdjustableMonthlyAverage;
-    final classified = summary.classifiedPercentage / 100;
-    return Container(
-      key: const ValueKey('baseline-dashboard'),
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: colors.surfaceContainerLow,
-        borderRadius: BorderRadius.circular(14),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Understanding Your Spending',
-            style: Theme.of(context).textTheme.titleLarge
-                ?.copyWith(fontWeight: FontWeight.w800),
-          ),
-          const SizedBox(height: 12),
-          Text(
-            'IDENTIFIED BASELINE',
-            style: Theme.of(context).textTheme.labelMedium
-                ?.copyWith(color: colors.primary, fontWeight: FontWeight.w800),
-          ),
-          Text(
-            '${formatFullCurrency(identified, widget.currencySymbol)} / mo',
-            key: const ValueKey('identified-baseline'),
-            style: Theme.of(context).textTheme.headlineMedium
-                ?.copyWith(fontWeight: FontWeight.w800, color: colors.primary),
-          ),
-          Text(
-            'Essential ${formatFullCurrency(summary.essential.monthlyAverage, widget.currencySymbol)} + Committed ${formatFullCurrency(summary.committed.monthlyAverage, widget.currencySymbol)} per month. Based on historical spending and your classifications; this is not a definitive minimum cost of living.',
-            style: Theme.of(context).textTheme.bodySmall,
-          ),
-          const SizedBox(height: 14),
-          Text(
-            'POTENTIAL SPENDING ADJUSTMENTS',
-            style: Theme.of(context).textTheme.labelMedium
-                ?.copyWith(fontWeight: FontWeight.w800),
-          ),
-          const SizedBox(height: 3),
-          Text(
-            '${formatFullCurrency(adjustable, widget.currencySymbol)} / mo potentially adjustable',
-            key: const ValueKey('potentially-adjustable'),
-            style: Theme.of(context).textTheme.titleLarge
-                ?.copyWith(fontWeight: FontWeight.w800),
-          ),
-          Text(
-            'Discretionary ${formatFullCurrency(summary.discretionary.monthlyAverage, widget.currencySymbol)} · Potentially Flexible ${formatFullCurrency(summary.potentiallyFlexible.monthlyAverage, widget.currencySymbol)}',
-            style: Theme.of(context).textTheme.bodySmall,
-          ),
-          Text(
-            'This is spending you may review or optimize, not guaranteed savings.',
-            style: Theme.of(context).textTheme.bodySmall,
-          ),
-          const SizedBox(height: 14),
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  'SPENDING STILL TO UNDERSTAND',
-                  style: Theme.of(context).textTheme.labelMedium
-                      ?.copyWith(fontWeight: FontWeight.w800),
-                ),
-              ),
-              Text(
-                '${summary.unclassifiedPercentage.toStringAsFixed(0)}% unclassified',
-                key: const ValueKey('unclassified-percentage'),
-              ),
-            ],
-          ),
-          Text(
-            '${formatFullCurrency(summary.unclassifiedMonthlyAverage, widget.currencySymbol)} / mo unclassified · ${formatFullCurrency(summary.trackedMonthlyAverage, widget.currencySymbol)} / mo total ledger spending',
-          ),
-          const SizedBox(height: 6),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(8),
-            child: LinearProgressIndicator(
-              value: classified,
-              minHeight: 9,
-              backgroundColor: colors.errorContainer,
-              color: colors.primary,
+  Future<void> _openInsights() async {
+    final summary = _provider.summary;
+    final colors = Theme.of(context).colorScheme;
+    final width = MediaQuery.sizeOf(context).width;
+    if (width >= 600) {
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) => Dialog(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxWidth: 760,
+              maxHeight: MediaQuery.sizeOf(dialogContext).height * .86,
             ),
+            child: _insightsDialogBody(summary, colors),
           ),
-          const SizedBox(height: 3),
-          Text(
-            '${summary.classifiedPercentage.toStringAsFixed(0)}% of spending classified by amount',
-            style: Theme.of(context).textTheme.labelSmall,
-          ),
-        ],
-      ),
-    );
-  }
-
-  Map<String, (int, double)> _spendingByMerchant(BaselineGroup group) {
-    final totals = <String, (int, double)>{};
-    for (final match in _service.classify(
-      transactions: _provider.transactions,
-      mappings: _provider.mappings,
-    )) {
-      if (match.assignedGroup != group) continue;
-      final name = _normalizer.normalize(match.transaction.description);
-      if (name.isEmpty) continue;
-      final current = totals[name] ?? (0, 0.0);
-      totals[name] = (current.$1 + 1, current.$2 + match.transaction.amount);
-    }
-    return totals;
-  }
-
-  Widget _buildOpportunitySection(
-    FinancialBaselineSummary summary,
-    ColorScheme colors,
-  ) {
-    Widget groupBreakdown(BaselineGroup group) {
-      final entries = _spendingByMerchant(group).entries.toList()
-        ..sort((first, second) => second.value.$2.compareTo(first.value.$2));
-      final top = entries.take(5).toList();
-      return Padding(
-        padding: const EdgeInsets.only(top: 8),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              '${group.label} · ${formatFullCurrency(summary.metrics[group]!.monthlyAverage, widget.currencySymbol)} / mo',
-              style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                fontWeight: FontWeight.w800,
-                color: _groupColor(group),
-              ),
-            ),
-            if (top.isEmpty)
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 4),
-                child: Text(
-                  'No spending is assigned to this group yet.',
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-              )
-            else
-              for (final entry in top)
-                ListTile(
-                  dense: true,
-                  contentPadding: EdgeInsets.zero,
-                  title: Text(
-                    entry.key,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  subtitle: Text(
-                    '${entry.value.$1} transactions · ${formatFullCurrency(entry.value.$2 / (summary.monthCount == 0 ? 1 : summary.monthCount), widget.currencySymbol)} / mo average',
-                  ),
-                  trailing: Text(
-                    formatFullCurrency(entry.value.$2, widget.currencySymbol),
-                    style: const TextStyle(fontWeight: FontWeight.w700),
-                  ),
-                ),
-          ],
+        ),
+      );
+    } else {
+      await showModalBottomSheet<void>(
+        context: context,
+        isScrollControlled: true,
+        useSafeArea: true,
+        builder: (sheetContext) => SizedBox(
+          height: MediaQuery.sizeOf(sheetContext).height * .92,
+          child: _insightsDialogBody(summary, colors),
         ),
       );
     }
+  }
 
-    return Container(
-      key: const ValueKey('where-to-make-changes'),
-      padding: const EdgeInsets.all(13),
+  Widget _insightsDialogBody(
+    FinancialBaselineSummary summary,
+    ColorScheme colors,
+  ) {
+    final readiness = baselineInsightReadiness(summary.classifiedPercentage);
+    final contributors = [..._merchants]
+      ..sort((a, b) => b.totalAmount.compareTo(a.totalAmount));
+    final trend = readiness == BaselineInsightReadiness.insufficient
+        ? null
+        : _supportedTrend();
+    final isUnsaved = _changedCount > 0;
+    Widget amountCard(String title, String value, Color color) => Container(
+      constraints: const BoxConstraints(minWidth: 205),
+      padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: colors.surfaceContainerLow,
-        borderRadius: BorderRadius.circular(13),
+        color: color.withValues(alpha: .07),
+        border: Border.all(color: color.withValues(alpha: .22)),
+        borderRadius: BorderRadius.circular(11),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Where You Can Make Changes',
-            style: Theme.of(context).textTheme.titleMedium
+            title,
+            style: Theme.of(context).textTheme.labelMedium
+                ?.copyWith(fontWeight: FontWeight.w700, color: color),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            value,
+            style: Theme.of(context).textTheme.titleLarge
                 ?.copyWith(fontWeight: FontWeight.w800),
           ),
-          Text(
-            'Largest contributors by historical spending during the analysis period. Amounts are not savings estimates.',
-            style: Theme.of(context).textTheme.bodySmall,
-          ),
-          groupBreakdown(BaselineGroup.discretionary),
-          groupBreakdown(BaselineGroup.potentiallyFlexible),
+          const Text('per month, normalized'),
         ],
       ),
     );
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(18, 14, 10, 8),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Spending Insights',
+                  style: Theme.of(context).textTheme.titleLarge
+                      ?.copyWith(fontWeight: FontWeight.w800),
+                ),
+              ),
+              if (isUnsaved)
+                const Padding(
+                  padding: EdgeInsets.only(right: 8),
+                  child: Chip(label: Text('Unsaved')),
+                ),
+              IconButton(
+                tooltip: 'Close insights',
+                onPressed: () => Navigator.of(context).pop(),
+                icon: const Icon(Icons.close),
+              ),
+            ],
+          ),
+        ),
+        const Divider(height: 1),
+        Expanded(
+          child: SingleChildScrollView(
+            key: const ValueKey('baseline-insights-scroll'),
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Completeness is measured by spending amount. These thresholds guide how much context to show; they do not guarantee accuracy.',
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  '${summary.classifiedPercentage.toStringAsFixed(0)}% classified · ${formatFullCurrency(summary.unclassifiedMonthlyAverage, widget.currencySymbol)} / mo unclassified',
+                  key: const ValueKey('insights-classification-status'),
+                  style: Theme.of(context).textTheme.titleSmall
+                      ?.copyWith(fontWeight: FontWeight.w700),
+                ),
+                const SizedBox(height: 6),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: LinearProgressIndicator(
+                    value: summary.classifiedPercentage / 100,
+                    minHeight: 8,
+                    color: colors.primary,
+                    backgroundColor: colors.errorContainer,
+                  ),
+                ),
+                if (readiness == BaselineInsightReadiness.insufficient) ...[
+                  const SizedBox(height: 14),
+                  Container(
+                    key: const ValueKey('insights-insufficient-data'),
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: colors.secondaryContainer,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Text(
+                      'There is not enough classified spending yet for representative baseline insights. Organize more merchants to build a clearer picture.',
+                    ),
+                  ),
+                ] else ...[
+                  if (readiness == BaselineInsightReadiness.provisional)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 10),
+                      child: Container(
+                        key: const ValueKey('insights-incomplete-warning'),
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: colors.tertiaryContainer,
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: const Text(
+                          'Provisional insights: some spending is still unclassified.',
+                        ),
+                      ),
+                    ),
+                  const SizedBox(height: 12),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      amountCard(
+                        'Identified Baseline',
+                        '${formatFullCurrency(summary.identifiedBaselineMonthlyAverage, widget.currencySymbol)} / mo',
+                        _groupColor(BaselineGroup.essential),
+                      ),
+                      amountCard(
+                        'Potentially Adjustable',
+                        '${formatFullCurrency(summary.potentiallyAdjustableMonthlyAverage, widget.currencySymbol)} / mo',
+                        _groupColor(BaselineGroup.potentiallyFlexible),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    'Top spending contributors',
+                    style: Theme.of(context).textTheme.titleMedium
+                        ?.copyWith(fontWeight: FontWeight.w800),
+                  ),
+                  for (final merchant in contributors.take(5))
+                    ListTile(
+                      key: ValueKey(
+                        'insight-contributor-${_stateKey(merchant)}',
+                      ),
+                      dense: true,
+                      contentPadding: EdgeInsets.zero,
+                      title: Text(
+                        merchant.merchantFingerprint,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      subtitle: Text(
+                        '${merchant.occurrenceCount} transactions',
+                      ),
+                      trailing: Text(
+                        formatFullCurrency(
+                          merchant.totalAmount,
+                          widget.currencySymbol,
+                        ),
+                      ),
+                    ),
+                  if (trend != null) ...[
+                    const Divider(),
+                    Text(
+                      'Historical trend',
+                      style: Theme.of(context).textTheme.titleMedium
+                          ?.copyWith(fontWeight: FontWeight.w800),
+                    ),
+                    Text(
+                      trend,
+                      key: const ValueKey('baseline-supported-trend'),
+                    ),
+                  ],
+                ],
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
   }
 
-  Widget _buildInsights(FinancialBaselineSummary summary, ColorScheme colors) {
+  String? _supportedTrend() {
     final now = DateTime.now();
     final currentMonth = DateTime(now.year, now.month);
     final recentStart = DateTime(now.year, now.month - 3);
     final previousStart = DateTime(now.year, now.month - 6);
-    final classified = _service
-        .classify(
-          transactions: _provider.transactions,
-          mappings: _provider.mappings,
-        )
-        .where((match) => match.assignedGroup == BaselineGroup.essential)
-        .toList(growable: false);
-    final recent = classified
+    final essential = _service
+        .classify(transactions: _provider.transactions, mappings: _mappings)
+        .where((match) => match.assignedGroup == BaselineGroup.essential);
+    final recent = essential
         .where(
           (match) =>
               !match.transaction.date.isBefore(recentStart) &&
               match.transaction.date.isBefore(currentMonth),
         )
         .toList();
-    final previous = classified
+    final previous = essential
         .where(
           (match) =>
               !match.transaction.date.isBefore(previousStart) &&
               match.transaction.date.isBefore(recentStart),
         )
         .toList();
-    final enoughHistory = recent.length >= 3 && previous.length >= 3;
+    if (recent.length < 3 || previous.length < 3) return null;
     final recentAverage =
         recent.fold<double>(0, (sum, match) => sum + match.transaction.amount) /
         3;
@@ -882,33 +1201,11 @@ class _FinancialBaselineScreenState extends State<FinancialBaselineScreen> {
           (sum, match) => sum + match.transaction.amount,
         ) /
         3;
-    final trendMessage = enoughHistory && previousAverage > 0
-        ? 'Recorded Essential spending averaged ${formatFullCurrency(recentAverage, widget.currencySymbol)} per month over the latest three completed months, ${((recentAverage - previousAverage).abs() / previousAverage * 100).round()}% ${recentAverage >= previousAverage ? 'higher' : 'lower'} than the previous three-month period.'
-        : 'A historical comparison will appear after at least three Essential transactions are classified in each of the last two completed three-month periods.';
-    return Container(
-      key: const ValueKey('spending-insights'),
-      padding: const EdgeInsets.all(13),
-      decoration: BoxDecoration(
-        color: colors.surfaceContainerLow,
-        borderRadius: BorderRadius.circular(13),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Your Spending Insights',
-            style: Theme.of(context).textTheme.titleMedium
-                ?.copyWith(fontWeight: FontWeight.w800),
-          ),
-          ListTile(
-            dense: true,
-            contentPadding: EdgeInsets.zero,
-            leading: const Icon(Icons.insights_outlined),
-            title: Text(trendMessage),
-          ),
-        ],
-      ),
-    );
+    if (previousAverage <= 0) return null;
+    final change =
+        ((recentAverage - previousAverage).abs() / previousAverage * 100)
+            .round();
+    return 'Essential spending averaged ${formatFullCurrency(recentAverage, widget.currencySymbol)} / mo in the latest three completed months, $change% ${recentAverage >= previousAverage ? 'higher' : 'lower'} than the prior three months.';
   }
 
   Color _groupColor(BaselineGroup group) => switch (group) {
@@ -977,6 +1274,14 @@ class _FinancialBaselineScreenState extends State<FinancialBaselineScreen> {
                   alignment: Alignment.centerLeft,
                   child: Text('Preview – Unsaved Changes ($_changedCount)'),
                 ),
+              if (_changedCount == 0 && _saveStatus != null)
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    _saveStatus!,
+                    key: const ValueKey('baseline-save-status'),
+                  ),
+                ),
               Row(
                 children: [
                   if (_changedCount > 0 || _draftRestored)
@@ -1003,104 +1308,18 @@ class _FinancialBaselineScreenState extends State<FinancialBaselineScreen> {
         key: const ValueKey('financial-baseline-screen-scroll'),
         padding: const EdgeInsets.fromLTRB(14, 8, 14, 24),
         children: [
-          if (_changedCount > 0)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 7),
-              child: Text(
-                'Preview – Unsaved Changes',
-                key: const ValueKey('baseline-unsaved-preview'),
-                style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                  fontWeight: FontWeight.w800,
-                  color: colors.tertiary,
-                ),
-              ),
-            ),
-          _buildUnderstandingSection(summary, colors),
-          const SizedBox(height: 10),
-          _buildOpportunitySection(summary, colors),
-          const SizedBox(height: 10),
-          _buildInsights(summary, colors),
-          const SizedBox(height: 10),
+          _buildClassificationProgress(summary, colors),
+          const SizedBox(height: 8),
           _buildOrganizer(colors),
           if (conflicts.isNotEmpty) ...[
-            const SizedBox(height: 8),
-            Container(
-              padding: const EdgeInsets.all(11),
-              decoration: BoxDecoration(
-                color: colors.errorContainer.withValues(alpha: 0.45),
-                borderRadius: BorderRadius.circular(11),
-              ),
-              child: Text(
-                '${conflicts.length} transaction(s) match merchants assigned to multiple groups. '
-                '${formatFullCurrency(summary.conflictAmount, widget.currencySymbol)} remains unclassified until mappings are resolved.',
-                key: const ValueKey('baseline-mapping-conflicts'),
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-            ),
-          ],
-          if (summary.ignoredCount > 0) ...[
-            const SizedBox(height: 7),
+            const SizedBox(height: 6),
             Text(
-              '${summary.ignoredCount} transfer, card payment, refund, reversal, or invalid transaction(s) excluded.',
-              style: Theme.of(context).textTheme.labelSmall,
+              '${conflicts.length} transaction(s) have overlapping merchant groups and remain unclassified.',
+              key: const ValueKey('baseline-mapping-conflicts'),
+              style: Theme.of(context).textTheme.labelSmall
+                  ?.copyWith(color: colors.error),
             ),
           ],
-          const SizedBox(height: 10),
-          ExpansionTile(
-            key: const ValueKey('baseline-detailed-breakdown'),
-            tilePadding: const EdgeInsets.symmetric(horizontal: 12),
-            childrenPadding: const EdgeInsets.fromLTRB(10, 0, 10, 10),
-            title: const Text('Detailed Breakdown'),
-            subtitle: Text(
-              'Lifestyle group totals · ${summary.monthCount} ${summary.monthCount == 1 ? 'month' : 'months'} analyzed',
-            ),
-            children: [
-              for (final entry in [
-                (
-                  'Essential',
-                  summary.essential,
-                  _groupColor(BaselineGroup.essential),
-                ),
-                (
-                  'Committed',
-                  summary.committed,
-                  _groupColor(BaselineGroup.committed),
-                ),
-                (
-                  'Discretionary',
-                  summary.discretionary,
-                  _groupColor(BaselineGroup.discretionary),
-                ),
-                (
-                  'Potentially Flexible',
-                  summary.potentiallyFlexible,
-                  _groupColor(BaselineGroup.potentiallyFlexible),
-                ),
-              ])
-                _buildMetric(
-                  entry.$1,
-                  entry.$2.monthlyAverage,
-                  entry.$2.annualizedAmount,
-                  entry.$3,
-                ),
-              _buildMetric(
-                'Unclassified',
-                summary.unclassifiedMonthlyAverage,
-                summary.unclassifiedAnnualizedAmount,
-                colors.outline,
-              ),
-              _buildMetric(
-                'Total Ledger Spending',
-                summary.trackedMonthlyAverage,
-                summary.trackedAnnualizedAmount,
-                colors.primary,
-              ),
-              Text(
-                'Lifestyle assignments are independent of Regular / Planned Occasional / Unexpected Occasional transaction frequency.',
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-            ],
-          ),
         ],
       ),
     );

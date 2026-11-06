@@ -33,6 +33,18 @@ class BaselineGroupMetrics {
   final double annualizedAmount;
 }
 
+enum BaselineInsightReadiness { insufficient, provisional, representative }
+
+BaselineInsightReadiness baselineInsightReadiness(double classifiedPercentage) {
+  if (!classifiedPercentage.isFinite || classifiedPercentage < 50) {
+    return BaselineInsightReadiness.insufficient;
+  }
+  if (classifiedPercentage < 80) {
+    return BaselineInsightReadiness.provisional;
+  }
+  return BaselineInsightReadiness.representative;
+}
+
 class FinancialBaselineSummary {
   const FinancialBaselineSummary({
     required this.monthCount,

@@ -24,6 +24,33 @@ void main() {
   group('FinancialBaselineService', () {
     final service = FinancialBaselineService();
 
+    test('insight readiness uses 50 and 80 percent UX thresholds', () {
+      expect(
+        baselineInsightReadiness(0),
+        BaselineInsightReadiness.insufficient,
+      );
+      expect(
+        baselineInsightReadiness(49),
+        BaselineInsightReadiness.insufficient,
+      );
+      expect(
+        baselineInsightReadiness(50),
+        BaselineInsightReadiness.provisional,
+      );
+      expect(
+        baselineInsightReadiness(79),
+        BaselineInsightReadiness.provisional,
+      );
+      expect(
+        baselineInsightReadiness(80),
+        BaselineInsightReadiness.representative,
+      );
+      expect(
+        baselineInsightReadiness(100),
+        BaselineInsightReadiness.representative,
+      );
+    });
+
     test('maps normalized merchant descriptions directly to a group', () {
       final matches = service.classify(
         transactions: [
