@@ -58,15 +58,25 @@ class FinancialBaselineSummary {
   double get trackedMonthlyAverage =>
       monthCount == 0 ? 0 : trackedSpending / monthCount;
   double get trackedAnnualizedAmount => trackedMonthlyAverage * 12;
+  double get identifiedBaselineMonthlyAverage =>
+      essential.monthlyAverage + committed.monthlyAverage;
+  double get potentiallyAdjustableMonthlyAverage =>
+      discretionary.monthlyAverage + potentiallyFlexible.monthlyAverage;
+  double get classifiedAmount => (trackedSpending - unclassifiedAmount)
+      .clamp(0, trackedSpending)
+      .toDouble();
+  double get classifiedPercentage => trackedSpending <= 0
+      ? 0
+      : (classifiedAmount / trackedSpending * 100).clamp(0, 100).toDouble();
+  double get unclassifiedPercentage => trackedSpending <= 0
+      ? 0
+      : (unclassifiedAmount / trackedSpending * 100).clamp(0, 100).toDouble();
   BaselineGroupMetrics get essential => metrics[BaselineGroup.essential]!;
   BaselineGroupMetrics get committed => metrics[BaselineGroup.committed]!;
   BaselineGroupMetrics get discretionary =>
       metrics[BaselineGroup.discretionary]!;
-  BaselineGroupMetrics get potentiallyFlexible => BaselineGroupMetrics(
-    monthlyAverage: committed.monthlyAverage + discretionary.monthlyAverage,
-    annualizedAmount:
-        committed.annualizedAmount + discretionary.annualizedAmount,
-  );
+  BaselineGroupMetrics get potentiallyFlexible =>
+      metrics[BaselineGroup.potentiallyFlexible]!;
 }
 
 class FinancialBaselineService {
@@ -137,6 +147,7 @@ class FinancialBaselineService {
       if (match.needsReview) {
         conflictCount++;
         conflictAmount += match.transaction.amount;
+        unclassifiedAmount += match.transaction.amount;
       } else if (match.assignedGroup case final group?) {
         totals[group] = totals[group]! + match.transaction.amount;
       } else {
@@ -183,7 +194,10 @@ class FinancialBaselineService {
 
   bool _isIgnored(Transaction transaction) {
     if (transaction.amount <= 0 || !transaction.amount.isFinite) return true;
-    if (isTransferTransaction(transaction)) return true;
+    if (isTransferTransaction(transaction) ||
+        isInternalTransfer(transaction.description)) {
+      return true;
+    }
     final searchable = '${transaction.category} ${transaction.description}'
         .trim()
         .toLowerCase();

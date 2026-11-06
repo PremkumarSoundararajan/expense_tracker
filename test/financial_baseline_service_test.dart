@@ -126,21 +126,101 @@ void main() {
       },
     );
 
-    test('potentially flexible includes committed and discretionary', () {
+    test(
+      'potentially flexible remains separate from other assigned groups',
+      () {
+        final summary = service.summarize(
+          transactions: [
+            _transaction(DateTime(2025, 2), 300, 'Rent'),
+            _transaction(DateTime(2025, 2), 50, 'Gym'),
+            _transaction(DateTime(2025, 2), 25, 'Coffee'),
+            _transaction(DateTime(2025, 2), 75, 'Travel'),
+          ],
+          mappings: [
+            _mapping('RENT', BaselineGroup.essential),
+            _mapping('GYM', BaselineGroup.committed),
+            _mapping('COFFEE', BaselineGroup.discretionary),
+            _mapping('TRAVEL', BaselineGroup.potentiallyFlexible),
+            _mapping('RENT', BaselineGroup.essential),
+          ],
+        );
+        expect(summary.potentiallyFlexible.monthlyAverage, 75);
+        expect(summary.potentiallyAdjustableMonthlyAverage, 100);
+        expect(summary.identifiedBaselineMonthlyAverage, 350);
+        expect(summary.potentiallyFlexible.annualizedAmount, 900);
+      },
+    );
+
+    test(
+      'calculates classified spending progress by amount and reconciles',
+      () {
+        final summary = service.summarize(
+          transactions: [
+            _transaction(DateTime(2025, 1), 90, 'RENT'),
+            _transaction(DateTime(2025, 1), 10, 'UNKNOWN'),
+          ],
+          mappings: [_mapping('RENT', BaselineGroup.essential)],
+        );
+
+        expect(summary.trackedSpending, 100);
+        expect(summary.unclassifiedAmount, 10);
+        expect(summary.unclassifiedPercentage, 10);
+        expect(summary.classifiedPercentage, 90);
+        expect(summary.classifiedAmount + summary.unclassifiedAmount, 100);
+      },
+    );
+
+    test('counts ambiguous matches as unclassified so totals reconcile', () {
       final summary = service.summarize(
-        transactions: [
-          _transaction(DateTime(2025, 2), 300, 'Rent'),
-          _transaction(DateTime(2025, 2), 50, 'Gym'),
-          _transaction(DateTime(2025, 2), 25, 'Coffee'),
-        ],
+        transactions: [_transaction(DateTime(2025, 1), 50, 'ONCOR WATER BILL')],
         mappings: [
-          _mapping('RENT', BaselineGroup.essential),
-          _mapping('GYM', BaselineGroup.committed),
-          _mapping('COFFEE', BaselineGroup.discretionary),
+          _mapping('ONCOR', BaselineGroup.essential),
+          _mapping('WATER', BaselineGroup.committed),
         ],
       );
-      expect(summary.potentiallyFlexible.monthlyAverage, 75);
-      expect(summary.potentiallyFlexible.annualizedAmount, 900);
+
+      expect(summary.conflictAmount, 50);
+      expect(summary.unclassifiedAmount, 50);
+      expect(summary.classifiedPercentage, 0);
+      expect(summary.trackedSpending, 50);
+    });
+
+    test('empty data has safe zero percentages and amounts', () {
+      final summary = service.summarize(
+        transactions: const [],
+        mappings: const [],
+      );
+      expect(summary.classifiedPercentage, 0);
+      expect(summary.unclassifiedPercentage, 0);
+      expect(summary.trackedSpending, 0);
+      expect(summary.monthCount, 0);
+    });
+
+    test('classification leaves transaction frequency types unchanged', () {
+      final transactions = [
+        Transaction(
+          date: DateTime(2025, 1),
+          amount: 25,
+          category: 'Food',
+          description: 'COFFEE SHOP',
+          expenseType: ExpenseType.plannedOccasional,
+        ),
+        Transaction(
+          date: DateTime(2025, 2),
+          amount: 40,
+          category: 'Health',
+          description: 'PHARMACY',
+          expenseType: ExpenseType.unexpectedOccasional,
+        ),
+      ];
+
+      service.classify(
+        transactions: transactions,
+        mappings: [_mapping('COFFEE SHOP', BaselineGroup.discretionary)],
+      );
+
+      expect(transactions[0].expenseType, ExpenseType.plannedOccasional);
+      expect(transactions[1].expenseType, ExpenseType.unexpectedOccasional);
     });
   });
 
@@ -188,6 +268,33 @@ void main() {
       expect(await secondStore.loadMappings(), isEmpty);
       final preferences = await SharedPreferences.getInstance();
       expect(preferences.getString(accountOneKey), isNotNull);
+    });
+
+    test('recovers an unfinished draft and queued sync batch', () async {
+      final store = FinancialBaselineStore(accountKey: 'Person@Email.com');
+      final committed = _mapping('RENT', BaselineGroup.committed);
+      final draft = _mapping('RENT', BaselineGroup.essential);
+      await store.saveDraft(
+        FinancialBaselineDraft(
+          baseMappings: [committed],
+          draftMappings: [draft],
+        ),
+      );
+      await store.savePendingSync(
+        FinancialBaselineSyncBatch(
+          upserts: [draft],
+          removals: const ['OLD MERCHANT'],
+        ),
+      );
+
+      final recovered = await store.loadDraft();
+      final pending = await store.loadPendingSync();
+      expect(recovered?.baseMappings, [committed]);
+      expect(recovered?.draftMappings, [draft]);
+      expect(pending?.upserts, [draft]);
+      expect(pending?.removals, ['OLD MERCHANT']);
+      await store.clearDraft();
+      expect(await store.loadDraft(), isNull);
     });
 
     test(

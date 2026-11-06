@@ -849,12 +849,10 @@ class _DashboardScreenState extends State<DashboardScreen>
       }
       await _fetchData();
       await _syncExpenseCategories(preferLocal: false);
-      if (_baselineMappings.isNotEmpty) {
-        try {
-          await _syncBaselineMappings(sheetsApi);
-        } catch (error) {
-          _showMessage('Could not sync baseline metadata: $error');
-        }
+      try {
+        await _syncBaselineMappings(sheetsApi);
+      } catch (error) {
+        _showMessage('Could not sync baseline metadata: $error');
       }
     } catch (e) {
       debugPrint("Spreadsheet setup error: $e");
@@ -1095,22 +1093,88 @@ class _DashboardScreenState extends State<DashboardScreen>
     if (spreadsheetId == null || spreadsheetId.isEmpty) {
       throw StateError('Could not resolve the Expense Tracker DB spreadsheet.');
     }
-    await _baselineSheetsSyncService.sync(
+    final pending = await _financialBaselineStore.loadPendingSync();
+    if (pending != null) {
+      await _baselineSheetsSyncService.syncChanges(
+        sheetsApi: sheetsApi,
+        spreadsheetId: spreadsheetId,
+        mappings: pending.upserts,
+        removedMerchants: pending.removals,
+      );
+      await _financialBaselineStore.clearPendingSync();
+    }
+
+    final remoteMappings = await _baselineSheetsSyncService.loadMappings(
       sheetsApi: sheetsApi,
       spreadsheetId: spreadsheetId,
-      mappings: _baselineMappings,
     );
+    String key(FinancialBaselineMapping mapping) => mapping.merchantFingerprint
+        .trim()
+        .toLowerCase()
+        .replaceAll(RegExp(r'\s+'), ' ');
+    final merged = <String, FinancialBaselineMapping>{
+      for (final mapping in remoteMappings) key(mapping): mapping,
+    };
+    final missingLocally = <FinancialBaselineMapping>[];
+    for (final mapping in _baselineMappings) {
+      if (!merged.containsKey(key(mapping))) {
+        merged[key(mapping)] = mapping;
+        missingLocally.add(mapping);
+      }
+    }
+    final refreshed = merged.values.toList(growable: false);
+    await _financialBaselineStore.saveMappings(refreshed);
+    if (mounted) setState(() => _baselineMappings = refreshed);
+    if (missingLocally.isNotEmpty) {
+      await _baselineSheetsSyncService.syncChanges(
+        sheetsApi: sheetsApi,
+        spreadsheetId: spreadsheetId,
+        mappings: missingLocally,
+      );
+    }
   }
 
   Future<String?> _saveBaselineMappings(
     List<FinancialBaselineMapping> mappings,
   ) async {
+    final oldByKey = {
+      for (final mapping in _baselineMappings)
+        mapping.merchantFingerprint.trim().toLowerCase().replaceAll(
+          RegExp(r'\s+'),
+          ' ',
+        ): mapping,
+    };
+    final newByKey = {
+      for (final mapping in mappings)
+        mapping.merchantFingerprint.trim().toLowerCase().replaceAll(
+          RegExp(r'\s+'),
+          ' ',
+        ): mapping,
+    };
+    final changedKeys = {
+      ...oldByKey.keys,
+      ...newByKey.keys,
+    }.where((key) => oldByKey[key]?.group != newByKey[key]?.group).toSet();
+    final batch = FinancialBaselineSyncBatch(
+      upserts: [
+        for (final key in changedKeys)
+          if (newByKey[key] != null) newByKey[key]!,
+      ],
+      removals: [
+        for (final key in changedKeys)
+          if (newByKey[key] == null) oldByKey[key]!.merchantFingerprint,
+      ],
+    );
+    if (batch.upserts.isEmpty && batch.removals.isEmpty) {
+      return 'No baseline changes to save.';
+    }
+    await _financialBaselineStore.savePendingSync(batch);
     await _financialBaselineStore.saveMappings(mappings);
     if (mounted) setState(() => _baselineMappings = List.of(mappings));
 
     final spreadsheetId = _spreadsheetId;
     if (spreadsheetId == null || spreadsheetId.isEmpty) {
-      return 'Baseline saved on this device. It will sync when Google Sheets is connected.';
+      return 'Saved locally, awaiting Google Sheets sync.';
     }
     try {
       var client = await _googleSignIn.authenticatedClient();
@@ -1118,20 +1182,24 @@ class _DashboardScreenState extends State<DashboardScreen>
         client = await _googleSignIn.authenticatedClient();
       }
       if (client == null) {
-        return 'Baseline saved on this device. Connect Google Sheets to sync it.';
+        return 'Saved locally, awaiting Google Sheets sync.';
       }
-      await _baselineSheetsSyncService.sync(
+      await _baselineSheetsSyncService.syncChanges(
         sheetsApi: sheets.SheetsApi(client),
         spreadsheetId: spreadsheetId,
-        mappings: mappings,
+        mappings: batch.upserts,
+        removedMerchants: batch.removals,
       );
-      return 'Baseline saved and synced to the Expense Tracker DB.';
+      await _financialBaselineStore.clearPendingSync();
+      return 'Changes saved and synced to the Expense Tracker DB.';
     } catch (error) {
-      return 'Baseline saved on this device, but could not sync its metadata: $error';
+      return 'Saved locally, awaiting sync. Sync failed: $error';
     }
   }
 
   Future<void> _openFinancialBaseline() async {
+    final draft = await _financialBaselineStore.loadDraft();
+    if (!mounted) return;
     await Navigator.of(context).push<void>(
       MaterialPageRoute(
         builder: (_) => FinancialBaselineScreen(
@@ -1139,6 +1207,9 @@ class _DashboardScreenState extends State<DashboardScreen>
           initialMappings: List.unmodifiable(_baselineMappings),
           currencySymbol: _currency,
           onMappingsSaved: _saveBaselineMappings,
+          initialDraft: draft,
+          onDraftChanged: _financialBaselineStore.saveDraft,
+          onDraftCleared: _financialBaselineStore.clearDraft,
         ),
       ),
     );

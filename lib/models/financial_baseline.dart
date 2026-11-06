@@ -1,7 +1,8 @@
 enum BaselineGroup {
   essential('Essential'),
   committed('Committed'),
-  discretionary('Discretionary');
+  discretionary('Discretionary'),
+  potentiallyFlexible('Potentially Flexible');
 
   const BaselineGroup(this.label);
 
@@ -73,4 +74,25 @@ class FinancialBaselineMapping {
     }
     return List.unmodifiable(mappings);
   }
+}
+
+/// An unfinished account-local classification session and the committed state
+/// it was based on, used to detect remote edits when restoring the draft.
+class FinancialBaselineDraft {
+  const FinancialBaselineDraft({
+    required this.baseMappings,
+    required this.draftMappings,
+  });
+
+  final List<FinancialBaselineMapping> baseMappings;
+  final List<FinancialBaselineMapping> draftMappings;
+}
+
+class FinancialBaselineSyncBatch {
+  const FinancialBaselineSyncBatch({
+    required this.upserts,
+    required this.removals,
+  });
+  final List<FinancialBaselineMapping> upserts;
+  final List<String> removals;
 }
