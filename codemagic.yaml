@@ -1,5 +1,5 @@
 workflows:
-    ios-testflight:
+  ios-testflight:
     name: iOS signed TestFlight build
     instance_type: mac_mini_m2
     max_build_duration: 60
@@ -7,8 +7,8 @@ workflows:
       flutter: 3.47.8
       xcode: latest
       groups:
-        - app_store_credentials  # Contains APP_STORE_CONNECT_ISSUER_ID, KEY_IDENTIFIER, PRIVATE_KEY
-        - pocket_ledger_ios      # Contains GOOGLE_IOS_CLIENT_ID and APP_STORE_APPLE_ID
+        - app_store_credentials
+        - pocket_ledger_ios
       vars:
         BUNDLE_ID: "com.premkumar.pocketledger"
       ios_signing:
