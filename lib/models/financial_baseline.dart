@@ -1,7 +1,5 @@
 enum BaselineGroup {
   essential('Essential'),
-  committed('Committed'),
-  discretionary('Discretionary'),
   potentiallyFlexible('Potentially Flexible');
 
   const BaselineGroup(this.label);
@@ -10,6 +8,8 @@ enum BaselineGroup {
 
   static BaselineGroup parse(Object? value) {
     final normalized = value?.toString().trim().toLowerCase();
+    if (normalized == 'committed') return BaselineGroup.essential;
+    if (normalized == 'discretionary') return BaselineGroup.potentiallyFlexible;
     for (final group in BaselineGroup.values) {
       if (group.label.toLowerCase() == normalized ||
           group.name.toLowerCase() == normalized) {
@@ -58,10 +58,16 @@ class FinancialBaselineMapping {
     for (final row in rows) {
       if (row is! Map) continue;
       final json = Map<String, dynamic>.from(row);
+      if (json['group']?.toString().trim().toLowerCase() == 'unclassified') {
+        continue;
+      }
       final group = BaselineGroup.parse(json['group']);
       final merchants = json['keywords'] is List
           ? (json['keywords'] as List).map((value) => value.toString())
-          : [json['merchant']?.toString() ?? ''];
+          : [
+              (json['merchant'] ?? json['merchantFingerprint'] ?? '')
+                  .toString(),
+            ];
       for (final merchant in merchants) {
         final fingerprint = merchant.trim();
         if (fingerprint.isEmpty) continue;

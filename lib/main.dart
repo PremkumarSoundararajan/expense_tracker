@@ -15,6 +15,9 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:extension_google_sign_in_as_googleapis_auth/extension_google_sign_in_as_googleapis_auth.dart';
 
+import 'services/spending_target_store.dart';
+import 'services/spending_target_service.dart';
+import 'widgets/spending_targets_screen.dart';
 import 'models/transaction.dart';
 import 'models/financial_baseline.dart';
 import 'models/expense_category.dart';
@@ -24,6 +27,7 @@ import 'services/financial_baseline_store.dart';
 import 'services/expense_category_store.dart';
 import 'services/expense_category_sheets_sync_service.dart';
 import 'services/google_drive_permission_service.dart';
+import 'services/google_sign_in_configuration.dart';
 import 'services/google_sheets_service.dart';
 import 'services/local_transaction_store.dart';
 import 'services/monthly_rollover_service.dart';
@@ -46,14 +50,7 @@ import 'widgets/statement_review_dialog.dart';
 import 'utils/currency_format.dart';
 import 'utils/transaction_period_format.dart';
 
-const _googleOAuthClientId =
-    '832232205995-r4b63brhvj3kbo193gckj4jgpg5oo2pi.apps.googleusercontent.com';
-
-final GoogleSignIn _googleSignIn = GoogleSignIn(
-  clientId: _googleOAuthClientId,
-  serverClientId: kIsWeb ? null : _googleOAuthClientId,
-  scopes: [drive.DriveApi.driveFileScope, sheets.SheetsApi.spreadsheetsScope],
-);
+final GoogleSignIn _googleSignIn = createGoogleSignIn();
 final GoogleDrivePermissionService _drivePermissionService =
     GoogleDrivePermissionService(_googleSignIn);
 final SpendingInsightsService _spendingInsightsService =
@@ -72,7 +69,9 @@ void main() async {
 }
 
 class PocketLedgerApp extends StatefulWidget {
-  const PocketLedgerApp({super.key});
+  const PocketLedgerApp({super.key, this.googleSignIn});
+
+  final GoogleSignIn? googleSignIn;
 
   @override
   State<PocketLedgerApp> createState() => _PocketLedgerAppState();
@@ -117,7 +116,11 @@ class _PocketLedgerAppState extends State<PocketLedgerApp> {
       theme: _buildTheme(Brightness.light),
       darkTheme: _buildTheme(Brightness.dark),
       themeMode: _isDarkMode ? ThemeMode.dark : ThemeMode.light,
-      home: AuthGate(isDarkMode: _isDarkMode, onDarkModeChanged: _setDarkMode),
+      home: AuthGate(
+        isDarkMode: _isDarkMode,
+        onDarkModeChanged: _setDarkMode,
+        googleSignIn: widget.googleSignIn,
+      ),
     );
   }
 
@@ -138,6 +141,7 @@ class _PocketLedgerAppState extends State<PocketLedgerApp> {
 }
 
 class AuthGate extends StatefulWidget {
+  final GoogleSignIn? googleSignIn;
   final bool isDarkMode;
   final Future<void> Function(bool) onDarkModeChanged;
 
@@ -145,6 +149,7 @@ class AuthGate extends StatefulWidget {
     super.key,
     required this.isDarkMode,
     required this.onDarkModeChanged,
+    this.googleSignIn,
   });
 
   @override
@@ -152,6 +157,7 @@ class AuthGate extends StatefulWidget {
 }
 
 class _AuthGateState extends State<AuthGate> {
+  GoogleSignIn get _signIn => widget.googleSignIn ?? _googleSignIn;
   GoogleSignInAccount? _currentUser;
   bool _isLoading = true;
   late final StreamSubscription<GoogleSignInAccount?> _userSubscription;
@@ -160,7 +166,7 @@ class _AuthGateState extends State<AuthGate> {
   void initState() {
     super.initState();
 
-    _userSubscription = _googleSignIn.onCurrentUserChanged.listen((account) {
+    _userSubscription = _signIn.onCurrentUserChanged.listen((account) {
       if (!mounted) return;
 
       setState(() {
@@ -173,12 +179,16 @@ class _AuthGateState extends State<AuthGate> {
   }
 
   Future<void> _restoreSignedInUser() async {
-    final account = await _googleSignIn.signInSilently();
-    if (!mounted) return;
-    setState(() {
-      _currentUser = account;
-      _isLoading = false;
-    });
+    try {
+      final account = await _signIn.signInSilently(suppressErrors: false);
+      if (mounted) setState(() => _currentUser = account);
+    } catch (error) {
+      // Expired credentials or an unavailable native sign-in SDK must not
+      // strand the user on the startup spinner. Manual sign-in can retry.
+      debugPrint('Could not restore Google sign-in: $error');
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
   }
 
   @override
@@ -190,7 +200,7 @@ class _AuthGateState extends State<AuthGate> {
   Future<void> _handleSignIn() async {
     try {
       setState(() => _isLoading = true);
-      await _googleSignIn.signIn();
+      await _signIn.signIn();
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context)
@@ -319,6 +329,8 @@ class _DashboardScreenState extends State<DashboardScreen>
   );
   late final LocalTransactionStore _localTransactionStore;
   late final FinancialBaselineStore _financialBaselineStore;
+  late final SpendingTargetStore _spendingTargetStore;
+  bool _targetHistoryComplete = false;
   late final ExpenseCategoryStore _expenseCategoryStore;
 
   String _currency = '\$';
@@ -402,6 +414,9 @@ class _DashboardScreenState extends State<DashboardScreen>
       accountKey: widget.account.email,
     );
     _expenseCategoryStore = ExpenseCategoryStore(
+      accountKey: widget.account.email,
+    );
+    _spendingTargetStore = SpendingTargetStore(
       accountKey: widget.account.email,
     );
     _loadCurrencyAndInitDrive();
@@ -493,6 +508,7 @@ class _DashboardScreenState extends State<DashboardScreen>
       );
       final cachedTransactions = await _localTransactionStore.loadCached();
       final baselineMappings = await _financialBaselineStore.loadMappings();
+      await _spendingTargetStore.load();
       final categoryData = await _expenseCategoryStore.load();
       final savedCategories =
           categoryData['categories'] as List<ExpenseCategory>;
@@ -851,6 +867,7 @@ class _DashboardScreenState extends State<DashboardScreen>
       await _syncExpenseCategories(preferLocal: false);
       try {
         await _syncBaselineMappings(sheetsApi);
+        await _syncSpendingTargets(sheetsApi);
       } catch (error) {
         _showMessage('Could not sync baseline metadata: $error');
       }
@@ -961,7 +978,17 @@ class _DashboardScreenState extends State<DashboardScreen>
       }
       await _localTransactionStore.saveCached(mergedTransactions);
       if (!mounted) return;
-      setState(() => _transactions = mergedTransactions);
+      setState(() {
+        _transactions = mergedTransactions;
+        _targetHistoryComplete = true;
+      });
+      if (_spendingTargetStore.hasPending) {
+        try {
+          await _syncSpendingTargets(sheetsApi);
+        } catch (_) {
+          /* Durable target outbox retries later. */
+        }
+      }
       if (remainingPending.isNotEmpty) {
         _showMessage(
           '${remainingPending.length} expense change(s) still waiting to sync.',
@@ -1169,6 +1196,7 @@ class _DashboardScreenState extends State<DashboardScreen>
       return 'No baseline changes to save.';
     }
     await _financialBaselineStore.savePendingSync(batch);
+    final queued = (await _financialBaselineStore.loadPendingSync())!;
     await _financialBaselineStore.saveMappings(mappings);
     if (mounted) setState(() => _baselineMappings = List.of(mappings));
 
@@ -1187,8 +1215,8 @@ class _DashboardScreenState extends State<DashboardScreen>
       await _baselineSheetsSyncService.syncChanges(
         sheetsApi: sheets.SheetsApi(client),
         spreadsheetId: spreadsheetId,
-        mappings: batch.upserts,
-        removedMerchants: batch.removals,
+        mappings: queued.upserts,
+        removedMerchants: queued.removals,
       );
       await _financialBaselineStore.clearPendingSync();
       return 'Changes saved and synced to the Expense Tracker DB.';
@@ -1197,7 +1225,51 @@ class _DashboardScreenState extends State<DashboardScreen>
     }
   }
 
+  Future<void> _syncSpendingTargets(sheets.SheetsApi api) async {
+    final id = _spreadsheetId;
+    if (id == null) return;
+    await _spendingTargetStore.synchronize(
+      (pending) => SpendingTargetSheetsSyncService().exchange(
+        api: api,
+        spreadsheetId: id,
+        pending: pending,
+      ),
+    );
+  }
+
+  Future<String> _saveSpendingTargets() async {
+    try {
+      final client = await _googleSignIn.authenticatedClient();
+      if (client == null || _spreadsheetId == null) {
+        return 'Targets saved on this device, awaiting sync.';
+      }
+      await _syncSpendingTargets(sheets.SheetsApi(client));
+      return 'Spending targets saved and synced.';
+    } catch (_) {
+      return 'Targets saved on this device, awaiting sync.';
+    }
+  }
+
+  Future<void> _openSpendingTargets() async {
+    if (!mounted) return;
+    unawaited(_saveSpendingTargets());
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => SpendingTargetsScreen(
+          store: _spendingTargetStore,
+          transactions: List.of(_transactions),
+          mappings: List.of(_baselineMappings),
+          categories: List.of(_expenseCategories),
+          currencySymbol: _currency,
+          onSaved: _saveSpendingTargets,
+          historyComplete: _targetHistoryComplete,
+        ),
+      ),
+    );
+  }
+
   Future<void> _openFinancialBaseline() async {
+    unawaited(_saveSpendingTargets());
     final draft = await _financialBaselineStore.loadDraft();
     if (!mounted) return;
     await Navigator.of(context).push<void>(
@@ -1205,8 +1277,12 @@ class _DashboardScreenState extends State<DashboardScreen>
         builder: (_) => FinancialBaselineScreen(
           transactions: List.unmodifiable(_transactions),
           initialMappings: List.unmodifiable(_baselineMappings),
+          categories: List.unmodifiable(_expenseCategories),
           currencySymbol: _currency,
           onMappingsSaved: _saveBaselineMappings,
+          targetStore: _spendingTargetStore,
+          onTargetsSaved: _saveSpendingTargets,
+          historyComplete: _targetHistoryComplete,
           initialDraft: draft,
           onDraftChanged: _financialBaselineStore.saveDraft,
           onDraftCleared: _financialBaselineStore.clearDraft,
@@ -1272,6 +1348,91 @@ class _DashboardScreenState extends State<DashboardScreen>
     );
   }
 
+  List<Widget> _manualTargetAwareness() {
+    final amount = double.tryParse(_amountController.text);
+    if (amount == null || !amount.isFinite || amount <= 0) return [];
+    final proposed = Transaction(
+      date: _selectedExpenseDate,
+      amount: amount,
+      category: _selectedCategory,
+      categoryId: _selectedCategoryId ?? _categoryIdForName(_selectedCategory),
+      description: _descController.text.trim(),
+    );
+    final awareness = SpendingTargetService().preview(
+      proposed: proposed,
+      targets: _spendingTargetStore.targets,
+      transactions: _transactions,
+      mappings: _baselineMappings,
+      categories: _expenseCategories,
+    );
+    String money(double n) => formatFullCurrency(n, _currency);
+    return [
+      for (final a in awareness.where((a) => a.after.progress >= .8))
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          child: Text(
+            a.crossed100
+                ? (a.after.remaining < 0
+                      ? 'This expense would bring your ${a.after.target.name} spending to ${money(a.after.actual)}, which is ${money(-a.after.remaining)} above your ${money(a.after.target.monthlyAmount)} monthly target.'
+                      : 'This expense would reach your ${money(a.after.target.monthlyAmount)} monthly ${a.after.target.name} target.')
+                : a.crossed80
+                ? "You're approaching your monthly spending target. ${money(a.after.actual)} of your ${money(a.after.target.monthlyAmount)} ${a.after.target.name} target would be used after this expense."
+                : '${a.after.target.name}: ${money(a.after.actual)} of ${money(a.after.target.monthlyAmount)} used after this expense.',
+            style: a.prominent
+                ? Theme.of(context).textTheme.bodyMedium
+                : Theme.of(context).textTheme.bodySmall,
+          ),
+        ),
+      if (awareness.isNotEmpty && !_targetHistoryComplete)
+        const Text(
+          'Based on locally available transactions; usage may be incomplete.',
+        ),
+    ];
+  }
+
+  Future<void> _showImportTargetSummary(List<TargetAwareness> changes) async {
+    if (changes.isEmpty || !mounted) return;
+    final count = changes.map((a) => a.after.target.scopeKey).toSet().length;
+    final open = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Spending Targets Update'),
+        content: SizedBox(
+          width: 420,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Your imported transactions affected $count spending target${count == 1 ? '' : 's'}.',
+                ),
+                for (final a in changes)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 6),
+                    child: Text(
+                      '${MaterialLocalizations.of(ctx).formatMonthYear(a.after.month)} · ${a.after.target.name} — ${a.after.label}',
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Close'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Open Spending Targets'),
+          ),
+        ],
+      ),
+    );
+    if (open == true && mounted) await _openSpendingTargets();
+  }
+
   Future<void> _saveExpense() async {
     final amountText = _amountController.text.trim();
     if (amountText.isEmpty) {
@@ -1280,7 +1441,7 @@ class _DashboardScreenState extends State<DashboardScreen>
     }
 
     final amount = double.tryParse(amountText);
-    if (amount == null || amount <= 0) {
+    if (amount == null || !amount.isFinite || amount <= 0) {
       _showMessage('Enter a valid amount greater than zero.');
       return;
     }
@@ -1633,6 +1794,23 @@ class _DashboardScreenState extends State<DashboardScreen>
         await _saveExpenseMappings(combined);
       }
 
+      // Snapshot the committed ledger, independently of a possibly stale cache.
+      sheets.SheetsApi? targetApi;
+      final monitorsLedger =
+          targetSpreadsheetId == _spreadsheetId &&
+          _spendingTargetStore.targets.isNotEmpty;
+      List<Transaction>? beforeTargetImport;
+      if (monitorsLedger) {
+        try {
+          final monitorClient = await _googleSignIn.authenticatedClient();
+          if (monitorClient != null) {
+            targetApi = sheets.SheetsApi(monitorClient);
+            beforeTargetImport = await _readSheetTransactions(targetApi);
+          }
+        } catch (_) {
+          /* Import remains available if monitoring cannot refresh. */
+        }
+      }
       final importResponse = await _workerCsvSyncService.syncCsv(
         accessToken: accessToken,
         spreadsheetId: targetSpreadsheetId,
@@ -1665,7 +1843,44 @@ class _DashboardScreenState extends State<DashboardScreen>
         '${spreadsheetCreated || importCreatedSpreadsheet ? ' A replacement spreadsheet was created.' : ''}',
       );
       if (targetSpreadsheetId == _spreadsheetId) {
+        List<TargetAwareness> changes = [];
+        if (beforeTargetImport != null &&
+            (importedCount > 0 || updatedCount > 0)) {
+          try {
+            final committed = await _readSheetTransactions(targetApi!);
+            String key(DateTime date, double amount, String description) =>
+                '${date.year}-${date.month}-${date.day}|${amount.toStringAsFixed(2)}|${description.trim().toLowerCase()}';
+            final reviewedKeys = {
+              for (final row in reviewedRows)
+                key(DateTime.parse(row.date), row.amount, row.description),
+            };
+            // Ignore unrelated concurrent edits. Use committed, deduplicated rows,
+            // never the preview amounts, to evaluate the reviewed import scopes.
+            final afterForImport = [
+              ...beforeTargetImport.where(
+                (t) => !reviewedKeys.contains(
+                  key(t.date, t.amount, t.description),
+                ),
+              ),
+              ...committed.where(
+                (t) =>
+                    reviewedKeys.contains(key(t.date, t.amount, t.description)),
+              ),
+            ];
+            changes = SpendingTargetService().importChanges(
+              targets: _spendingTargetStore.targets,
+              before: beforeTargetImport,
+              after: afterForImport,
+              mappings: _baselineMappings,
+              categories: _expenseCategories,
+              now: DateTime.now(),
+            );
+          } catch (_) {
+            /* No claims about target usage when refresh fails. */
+          }
+        }
         await _fetchData();
+        await _showImportTargetSummary(changes);
       }
     } catch (error, stackTrace) {
       debugPrint('[import] FAILED: $error\n$stackTrace');
@@ -2578,6 +2793,7 @@ class _DashboardScreenState extends State<DashboardScreen>
             const SizedBox(height: 16),
             TextField(
               controller: _amountController,
+              onChanged: (_) => setState(() {}),
               keyboardType: const TextInputType.numberWithOptions(
                 decimal: true,
               ),
@@ -2592,6 +2808,7 @@ class _DashboardScreenState extends State<DashboardScreen>
             const SizedBox(height: 16),
             TextField(
               controller: _descController,
+              onChanged: (_) => setState(() {}),
               decoration: InputDecoration(
                 labelText: 'Description (Optional)',
                 border: OutlineInputBorder(
@@ -2610,6 +2827,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                 ),
               ),
             ),
+            ..._manualTargetAwareness(),
             const SizedBox(height: 24),
             ElevatedButton.icon(
               onPressed: _isSaving ? null : _saveExpense,
@@ -2837,10 +3055,18 @@ class _DashboardScreenState extends State<DashboardScreen>
               leading: const Icon(Icons.menu_book_outlined),
               title: const Text('My Financial Baseline'),
               subtitle: const Text(
-                'Essential, committed and discretionary spending',
+                'Essential and Potentially Flexible spending',
               ),
               trailing: const Icon(Icons.chevron_right),
               onTap: _openFinancialBaseline,
+            ),
+          ),
+          Card(
+            child: ListTile(
+              leading: const Icon(Icons.flag_outlined),
+              title: const Text('Spending Targets'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: _openSpendingTargets,
             ),
           ),
         ]);

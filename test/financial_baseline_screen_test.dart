@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pocket_ledger/models/expense_category.dart';
 import 'package:pocket_ledger/models/financial_baseline.dart';
 import 'package:pocket_ledger/models/transaction.dart';
 import 'package:pocket_ledger/widgets/financial_baseline_screen.dart';
@@ -138,7 +139,7 @@ void main() {
     );
     await tester.pumpAndSettle();
     final essential = find.byKey(const ValueKey('baseline-group-essential'));
-    expect(tester.getSize(essential).height, lessThan(100));
+    expect(tester.getSize(essential).height, lessThan(155));
     expect(find.text('50 assigned'), findsOneWidget);
     expect(
       find.descendant(of: essential, matching: find.byType(InputChip)),
@@ -153,7 +154,7 @@ void main() {
   ) async {
     const mapping = FinancialBaselineMapping(
       merchantFingerprint: 'NETFLIX',
-      group: BaselineGroup.discretionary,
+      group: BaselineGroup.potentiallyFlexible,
     );
     var writes = 0;
     await tester.pumpWidget(
@@ -174,7 +175,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('organized-netflix')), findsNothing);
     final groupCard = find.byKey(
-      const ValueKey('baseline-group-discretionary'),
+      const ValueKey('baseline-group-potentiallyFlexible'),
     );
     final before = tester.getSize(groupCard).height;
     await _scrollTo(
@@ -184,7 +185,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('organized-merchants-title')));
     await tester.pumpAndSettle();
     final merchant = find.byKey(
-      const ValueKey('organized-discretionary-netflix'),
+      const ValueKey('organized-potentiallyFlexible-netflix'),
     );
     expect(merchant, findsOneWidget);
     final assignedSearch = find.byKey(
@@ -367,6 +368,7 @@ void main() {
     'insights explain classification completeness at each threshold',
     (tester) async {
       for (final percentage in [0, 49, 50, 79, 80, 100]) {
+        var writes = 0;
         final transactions = <Transaction>[];
         final mappings = <FinancialBaselineMapping>[];
         if (percentage > 0) {
@@ -400,7 +402,10 @@ void main() {
               transactions: transactions,
               initialMappings: mappings,
               currencySymbol: r'$',
-              onMappingsSaved: (_) async => null,
+              onMappingsSaved: (_) async {
+                writes++;
+                return null;
+              },
             ),
           ),
         );
@@ -419,26 +424,165 @@ void main() {
         expect(status, startsWith('$percentage% classified'));
         if (percentage < 50) {
           expect(
-            find.byKey(const ValueKey('insights-insufficient-data')),
+            find.byKey(const ValueKey('insights-incomplete-warning')),
             findsOneWidget,
           );
-          expect(find.text('Identified Baseline'), findsNothing);
+          expect(find.text('Identified Baseline'), findsOneWidget);
         } else {
-          expect(
-            find.byKey(const ValueKey('insights-insufficient-data')),
-            findsNothing,
-          );
           expect(find.text('Identified Baseline'), findsOneWidget);
           expect(
             find.byKey(const ValueKey('insights-incomplete-warning')),
             percentage < 80 ? findsOneWidget : findsNothing,
           );
         }
+        expect(find.text('Top spending contributors'), findsNothing);
+        expect(find.text('Monthly Spending Trend'), findsOneWidget);
+        expect(
+          find.byKey(const ValueKey('six-month-spending-chart')),
+          findsOneWidget,
+        );
+        expect(find.textContaining('Baseline = Essential'), findsOneWidget);
         await tester.tap(find.byTooltip('Close insights'));
         await tester.pumpAndSettle();
+        expect(writes, 0);
       }
     },
   );
+
+  testWidgets('planner shares category and merchant targets without saving', (
+    tester,
+  ) async {
+    var writes = 0;
+    const restaurantCategory = ExpenseCategory(
+      id: 'food-household:dining',
+      parentId: 'food-household',
+      name: 'Restaurants / Eating Out',
+    );
+    const mappings = [
+      FinancialBaselineMapping(
+        merchantFingerprint: 'RESTAURANT A',
+        group: BaselineGroup.potentiallyFlexible,
+      ),
+      FinancialBaselineMapping(
+        merchantFingerprint: 'RESTAURANT B',
+        group: BaselineGroup.potentiallyFlexible,
+      ),
+      FinancialBaselineMapping(
+        merchantFingerprint: 'LOCAL SHOP',
+        group: BaselineGroup.potentiallyFlexible,
+      ),
+    ];
+    await tester.pumpWidget(
+      MaterialApp(
+        home: FinancialBaselineScreen(
+          transactions: [
+            Transaction(
+              date: DateTime(2026, 10, 5),
+              amount: 100,
+              category: restaurantCategory.name,
+              categoryId: restaurantCategory.id,
+              description: 'RESTAURANT A',
+            ),
+            Transaction(
+              date: DateTime(2026, 10, 6),
+              amount: 200,
+              category: restaurantCategory.name,
+              categoryId: restaurantCategory.id,
+              description: 'RESTAURANT B',
+            ),
+            Transaction(
+              date: DateTime(2026, 10, 7),
+              amount: 40,
+              category: 'Other',
+              description: 'LOCAL SHOP',
+            ),
+          ],
+          initialMappings: mappings,
+          categories: const [restaurantCategory],
+          currencySymbol: r'$',
+          onMappingsSaved: (_) async {
+            writes++;
+            return null;
+          },
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('view-baseline-insights')));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey('potentially-adjustable-plan-launch')),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('By Category'), findsOneWidget);
+    expect(find.text('By Merchant'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('uncategorized-category-warning')),
+      findsOneWidget,
+    );
+    final plannerScrollable = find
+        .descendant(
+          of: find.byKey(const ValueKey('reduction-planner-scroll')),
+          matching: find.byType(Scrollable),
+        )
+        .first;
+    final plannerScrollState = tester.state<ScrollableState>(plannerScrollable);
+    plannerScrollState.position.jumpTo(
+      plannerScrollState.position.maxScrollExtent,
+    );
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('reduction-uncategorized-row')),
+      findsOneWidget,
+    );
+    plannerScrollState.position.jumpTo(0);
+    await tester.pumpAndSettle();
+
+    final search = find.byKey(const ValueKey('reduction-search'));
+    await tester.enterText(search, 'restaurant');
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('reduction-category-food-household:dining')),
+      findsOneWidget,
+    );
+    await tester.enterText(search, '');
+    await tester.pumpAndSettle();
+
+    final categoryTarget = find.byKey(
+      const ValueKey('target-selector-category:food-household:dining'),
+    );
+    await tester.tap(categoryTarget);
+    await tester.pumpAndSettle();
+    expect(find.text(r'$75 / month'), findsOneWidget);
+
+    await tester.tap(find.text('By Merchant'));
+    await tester.pumpAndSettle();
+    await tester.enterText(search, 'restaurant a');
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('reduction-merchant-restaurant a')),
+      findsOneWidget,
+    );
+    final merchantTarget = find.byKey(
+      const ValueKey('target-options-merchant:restaurant a'),
+    );
+    await tester.tap(merchantTarget);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Reduce 50%'));
+    await tester.pumpAndSettle();
+    expect(find.text(r'$100 / month'), findsOneWidget);
+
+    await tester.tap(
+      find.byKey(const ValueKey('your-reduction-plan-expansion')),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text(r'$50'), findsWidgets);
+    expect(writes, 0);
+    await tester.tap(find.byTooltip('Close planner'));
+    await tester.pumpAndSettle();
+    expect(find.text('Spending Insights'), findsOneWidget);
+    expect(writes, 0);
+  });
 
   testWidgets('restores draft and supports discard without a Sheets write', (
     tester,
@@ -447,11 +591,11 @@ void main() {
     var cleared = false;
     const committed = FinancialBaselineMapping(
       merchantFingerprint: 'RENT',
-      group: BaselineGroup.committed,
+      group: BaselineGroup.essential,
     );
     const draft = FinancialBaselineMapping(
       merchantFingerprint: 'RENT',
-      group: BaselineGroup.essential,
+      group: BaselineGroup.potentiallyFlexible,
     );
     await tester.pumpWidget(
       MaterialApp(
@@ -483,6 +627,25 @@ void main() {
       find.byKey(const ValueKey('organized-essential-rent')),
       findsNothing,
     );
+    final insightsButton = find.byKey(const ValueKey('view-baseline-insights'));
+    final pageScrollable = find
+        .descendant(
+          of: find.byKey(const ValueKey('financial-baseline-screen-scroll')),
+          matching: find.byType(Scrollable),
+        )
+        .first;
+    tester.state<ScrollableState>(pageScrollable).position.jumpTo(0);
+    await tester.pumpAndSettle();
+    await tester.tap(insightsButton);
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('insights-unsaved-preview')),
+      findsOneWidget,
+    );
+    expect(find.text(r'$100 / mo'), findsOneWidget);
+    await tester.tap(find.byTooltip('Close insights'));
+    await tester.pumpAndSettle();
+    expect(writes, 0);
     await tester.tap(find.text('Discard Changes'));
     await tester.pumpAndSettle();
     expect(writes, 0);

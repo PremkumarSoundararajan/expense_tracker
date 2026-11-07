@@ -1,8 +1,13 @@
 import 'package:flutter/material.dart';
 
+import '../services/spending_target_store.dart';
+
 import '../models/financial_baseline.dart';
+import '../models/expense_category.dart';
 import '../models/transaction.dart';
 import '../services/financial_baseline_service.dart';
+import '../services/financial_baseline_insights_service.dart';
+import '../widgets/spending_reduction_planner_screen.dart';
 import '../services/merchant_normalizer.dart';
 import '../services/merchant_discovery_service.dart';
 import '../utils/currency_format.dart';
@@ -12,15 +17,23 @@ class FinancialBaselineScreen extends StatefulWidget {
     super.key,
     required this.transactions,
     required this.initialMappings,
+    this.categories = const [],
     required this.currencySymbol,
     required this.onMappingsSaved,
     this.initialDraft,
     this.onDraftChanged,
     this.onDraftCleared,
+    this.targetStore,
+    this.onTargetsSaved,
+    this.historyComplete = false,
   });
 
+  final SpendingTargetStore? targetStore;
+  final Future<String> Function()? onTargetsSaved;
+  final bool historyComplete;
   final List<Transaction> transactions;
   final List<FinancialBaselineMapping> initialMappings;
+  final List<ExpenseCategory> categories;
   final String currencySymbol;
   final Future<String?> Function(List<FinancialBaselineMapping>)
   onMappingsSaved;
@@ -35,6 +48,8 @@ class FinancialBaselineScreen extends StatefulWidget {
 
 class _FinancialBaselineScreenState extends State<FinancialBaselineScreen> {
   final FinancialBaselineService _service = FinancialBaselineService();
+  final FinancialBaselineInsightsService _insightsService =
+      FinancialBaselineInsightsService();
   final MerchantDiscoveryService _merchantDiscoveryService =
       MerchantDiscoveryService();
   final MerchantNormalizer _normalizer = const MerchantNormalizer();
@@ -383,15 +398,28 @@ class _FinancialBaselineScreenState extends State<FinancialBaselineScreen> {
           const SizedBox(height: 8),
           LayoutBuilder(
             builder: (context, constraints) {
-              final groups = Column(
-                children: [
-                  for (final group in BaselineGroup.values) ...[
-                    _buildGroupCard(group, colors),
-                    if (group != BaselineGroup.values.last)
-                      const SizedBox(height: 7),
-                  ],
-                ],
-              );
+              final groups = constraints.maxWidth >= 850
+                  ? Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        for (final group in BaselineGroup.values)
+                          Expanded(
+                            child: Padding(
+                              padding: const EdgeInsets.only(right: 6),
+                              child: _buildGroupCard(group, colors),
+                            ),
+                          ),
+                      ],
+                    )
+                  : Column(
+                      children: [
+                        for (final group in BaselineGroup.values)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 7),
+                            child: _buildGroupCard(group, colors),
+                          ),
+                      ],
+                    );
               final left = Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
@@ -794,6 +822,12 @@ class _FinancialBaselineScreenState extends State<FinancialBaselineScreen> {
             ],
           ),
           const SizedBox(height: 3),
+          Text(
+            group == BaselineGroup.essential
+                ? 'Needs and obligations you plan to maintain.'
+                : 'Spending you could reduce, optimize, or eliminate.',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
           Autocomplete<DiscoveredMerchant>(
             key: ValueKey('group-autocomplete-${group.name}'),
             displayStringForOption: (merchant) => merchant.merchantFingerprint,
@@ -984,36 +1018,57 @@ class _FinancialBaselineScreenState extends State<FinancialBaselineScreen> {
     ColorScheme colors,
   ) {
     final readiness = baselineInsightReadiness(summary.classifiedPercentage);
-    final contributors = [..._merchants]
-      ..sort((a, b) => b.totalAmount.compareTo(a.totalAmount));
-    final trend = readiness == BaselineInsightReadiness.insufficient
-        ? null
-        : _supportedTrend();
+    final spendingTrend = _insightsService.build(
+      transactions: _provider.transactions,
+      mappings: _mappings,
+      now: DateTime.now(),
+      currencySymbol: widget.currencySymbol,
+    );
     final isUnsaved = _changedCount > 0;
-    Widget amountCard(String title, String value, Color color) => Container(
-      constraints: const BoxConstraints(minWidth: 205),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: .07),
-        border: Border.all(color: color.withValues(alpha: .22)),
-        borderRadius: BorderRadius.circular(11),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            title,
-            style: Theme.of(context).textTheme.labelMedium
-                ?.copyWith(fontWeight: FontWeight.w700, color: color),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            value,
-            style: Theme.of(context).textTheme.titleLarge
-                ?.copyWith(fontWeight: FontWeight.w800),
-          ),
-          const Text('per month, normalized'),
-        ],
+    Widget amountCard(
+      String title,
+      String value,
+      Color color, {
+      VoidCallback? onTap,
+      Key? key,
+    }) => InkWell(
+      key: key,
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(11),
+      child: Container(
+        constraints: const BoxConstraints(minWidth: 205),
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: .07),
+          border: Border.all(color: color.withValues(alpha: .22)),
+          borderRadius: BorderRadius.circular(11),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  title,
+                  style: Theme.of(context).textTheme.labelMedium
+                      ?.copyWith(fontWeight: FontWeight.w700, color: color),
+                ),
+                if (onTap != null) ...[
+                  const SizedBox(width: 5),
+                  Icon(Icons.chevron_right, size: 18, color: color),
+                ],
+              ],
+            ),
+            const SizedBox(height: 4),
+            Text(
+              value,
+              style: Theme.of(context).textTheme.titleLarge
+                  ?.copyWith(fontWeight: FontWeight.w800),
+            ),
+            const Text('per month, normalized'),
+          ],
+        ),
       ),
     );
 
@@ -1034,7 +1089,10 @@ class _FinancialBaselineScreenState extends State<FinancialBaselineScreen> {
               if (isUnsaved)
                 const Padding(
                   padding: EdgeInsets.only(right: 8),
-                  child: Chip(label: Text('Unsaved')),
+                  child: Chip(
+                    key: ValueKey('insights-unsaved-preview'),
+                    label: Text('Preview – Unsaved Changes'),
+                  ),
                 ),
               IconButton(
                 tooltip: 'Close insights',
@@ -1052,10 +1110,6 @@ class _FinancialBaselineScreenState extends State<FinancialBaselineScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
-                  'Completeness is measured by spending amount. These thresholds guide how much context to show; they do not guarantee accuracy.',
-                ),
-                const SizedBox(height: 12),
                 Text(
                   '${summary.classifiedPercentage.toStringAsFixed(0)}% classified · ${formatFullCurrency(summary.unclassifiedMonthlyAverage, widget.currencySymbol)} / mo unclassified',
                   key: const ValueKey('insights-classification-status'),
@@ -1073,94 +1127,57 @@ class _FinancialBaselineScreenState extends State<FinancialBaselineScreen> {
                   ),
                 ),
                 if (readiness == BaselineInsightReadiness.insufficient) ...[
-                  const SizedBox(height: 14),
-                  Container(
-                    key: const ValueKey('insights-insufficient-data'),
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: colors.secondaryContainer,
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: const Text(
-                      'There is not enough classified spending yet for representative baseline insights. Organize more merchants to build a clearer picture.',
-                    ),
+                  const SizedBox(height: 6),
+                  const Text(
+                    'Much of your spending is still unclassified. Insights are not yet representative.',
+                    key: ValueKey('insights-incomplete-warning'),
                   ),
-                ] else ...[
-                  if (readiness == BaselineInsightReadiness.provisional)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 10),
-                      child: Container(
-                        key: const ValueKey('insights-incomplete-warning'),
-                        width: double.infinity,
-                        padding: const EdgeInsets.all(10),
-                        decoration: BoxDecoration(
-                          color: colors.tertiaryContainer,
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: const Text(
-                          'Provisional insights: some spending is still unclassified.',
-                        ),
-                      ),
-                    ),
-                  const SizedBox(height: 12),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      amountCard(
-                        'Identified Baseline',
-                        '${formatFullCurrency(summary.identifiedBaselineMonthlyAverage, widget.currencySymbol)} / mo',
-                        _groupColor(BaselineGroup.essential),
-                      ),
-                      amountCard(
-                        'Potentially Adjustable',
-                        '${formatFullCurrency(summary.potentiallyAdjustableMonthlyAverage, widget.currencySymbol)} / mo',
-                        _groupColor(BaselineGroup.potentiallyFlexible),
-                      ),
-                    ],
+                ] else if (readiness ==
+                    BaselineInsightReadiness.provisional) ...[
+                  const SizedBox(height: 6),
+                  const Text(
+                    'Insights are provisional while some spending remains unclassified.',
+                    key: ValueKey('insights-incomplete-warning'),
                   ),
-                  const SizedBox(height: 16),
-                  Text(
-                    'Top spending contributors',
-                    style: Theme.of(context).textTheme.titleMedium
-                        ?.copyWith(fontWeight: FontWeight.w800),
-                  ),
-                  for (final merchant in contributors.take(5))
-                    ListTile(
-                      key: ValueKey(
-                        'insight-contributor-${_stateKey(merchant)}',
-                      ),
-                      dense: true,
-                      contentPadding: EdgeInsets.zero,
-                      title: Text(
-                        merchant.merchantFingerprint,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      subtitle: Text(
-                        '${merchant.occurrenceCount} transactions',
-                      ),
-                      trailing: Text(
-                        formatFullCurrency(
-                          merchant.totalAmount,
-                          widget.currencySymbol,
-                        ),
-                      ),
+                ],
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    amountCard(
+                      'Identified Baseline',
+                      '${formatFullCurrency(summary.identifiedBaselineMonthlyAverage, widget.currencySymbol)} / mo',
+                      _groupColor(BaselineGroup.essential),
                     ),
-                  if (trend != null) ...[
-                    const Divider(),
-                    Text(
-                      'Historical trend',
-                      style: Theme.of(context).textTheme.titleMedium
-                          ?.copyWith(fontWeight: FontWeight.w800),
-                    ),
-                    Text(
-                      trend,
-                      key: const ValueKey('baseline-supported-trend'),
+                    amountCard(
+                      'Potentially Adjustable',
+                      '${formatFullCurrency(summary.potentiallyAdjustableMonthlyAverage, widget.currencySymbol)} / mo',
+                      _groupColor(BaselineGroup.potentiallyFlexible),
+                      onTap: _openReductionPlanner,
+                      key: const ValueKey('potentially-adjustable-plan-launch'),
                     ),
                   ],
-                ],
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'Baseline = Essential · Adjustable = Potentially Flexible',
+                  key: ValueKey('insights-category-explanation'),
+                ),
+                const SizedBox(height: 14),
+                Text(
+                  'Monthly Spending Trend',
+                  style: Theme.of(context).textTheme.titleMedium
+                      ?.copyWith(fontWeight: FontWeight.w800),
+                ),
+                const Text('Last 6 completed months'),
+                const SizedBox(height: 4),
+                _buildMonthlyTrendChart(spendingTrend.months, colors),
+                const SizedBox(height: 8),
+                Text(
+                  spendingTrend.observation,
+                  key: const ValueKey('adjustable-spending-observation'),
+                ),
               ],
             ),
           ),
@@ -1169,56 +1186,180 @@ class _FinancialBaselineScreenState extends State<FinancialBaselineScreen> {
     );
   }
 
-  String? _supportedTrend() {
-    final now = DateTime.now();
-    final currentMonth = DateTime(now.year, now.month);
-    final recentStart = DateTime(now.year, now.month - 3);
-    final previousStart = DateTime(now.year, now.month - 6);
-    final essential = _service
-        .classify(transactions: _provider.transactions, mappings: _mappings)
-        .where((match) => match.assignedGroup == BaselineGroup.essential);
-    final recent = essential
-        .where(
-          (match) =>
-              !match.transaction.date.isBefore(recentStart) &&
-              match.transaction.date.isBefore(currentMonth),
-        )
-        .toList();
-    final previous = essential
-        .where(
-          (match) =>
-              !match.transaction.date.isBefore(previousStart) &&
-              match.transaction.date.isBefore(recentStart),
-        )
-        .toList();
-    if (recent.length < 3 || previous.length < 3) return null;
-    final recentAverage =
-        recent.fold<double>(0, (sum, match) => sum + match.transaction.amount) /
-        3;
-    final previousAverage =
-        previous.fold<double>(
-          0,
-          (sum, match) => sum + match.transaction.amount,
-        ) /
-        3;
-    if (previousAverage <= 0) return null;
-    final change =
-        ((recentAverage - previousAverage).abs() / previousAverage * 100)
-            .round();
-    return 'Essential spending averaged ${formatFullCurrency(recentAverage, widget.currencySymbol)} / mo in the latest three completed months, $change% ${recentAverage >= previousAverage ? 'higher' : 'lower'} than the prior three months.';
+  Future<void> _openReductionPlanner() async {
+    final width = MediaQuery.sizeOf(context).width;
+    final planner = SpendingReductionPlannerScreen(
+      transactions: List.unmodifiable(_provider.transactions),
+      lifestyleMappings: List.unmodifiable(_mappings),
+      categories: List.unmodifiable(widget.categories),
+      currencySymbol: widget.currencySymbol,
+      targetStore: widget.targetStore,
+      hasUnsavedClassifications: _changedCount > 0,
+      targetMappings: List.unmodifiable(_committedMappings),
+      onTargetsSaved: widget.onTargetsSaved,
+      historyComplete: widget.historyComplete,
+    );
+    if (width >= 600) {
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) => Dialog(
+          child: SizedBox(
+            width: MediaQuery.sizeOf(dialogContext).width.clamp(360, 760),
+            height: MediaQuery.sizeOf(dialogContext).height * .86,
+            child: planner,
+          ),
+        ),
+      );
+    } else {
+      await showDialog<void>(
+        context: context,
+        builder: (_) => Dialog.fullscreen(child: planner),
+      );
+    }
   }
+
+  Widget _buildMonthlyTrendChart(
+    List<BaselineMonthlySpending> months,
+    ColorScheme colors,
+  ) {
+    const labels = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
+    final maxTotal = months.fold<double>(
+      0,
+      (maximum, month) => month.total > maximum ? month.total : maximum,
+    );
+    final chartHeight = 112.0;
+    final baselineColor = _groupColor(BaselineGroup.essential);
+    final adjustableColor = _groupColor(BaselineGroup.potentiallyFlexible);
+    final unclassifiedColor = colors.outlineVariant;
+    return Column(
+      children: [
+        SizedBox(
+          key: const ValueKey('six-month-spending-chart'),
+          height: chartHeight + 22,
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              for (final month in months)
+                Expanded(
+                  child: Tooltip(
+                    message:
+                        'Baseline ${formatFullCurrency(month.baseline, widget.currencySymbol)} · Adjustable ${formatFullCurrency(month.adjustable, widget.currencySymbol)} · Unclassified ${formatFullCurrency(month.unclassified, widget.currencySymbol)} · Total ${formatFullCurrency(month.total, widget.currencySymbol)}',
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 3),
+                      child: Column(
+                        children: [
+                          Expanded(
+                            child: Align(
+                              alignment: Alignment.bottomCenter,
+                              child: Container(
+                                width: 25,
+                                height: maxTotal == 0
+                                    ? 0
+                                    : chartHeight * month.total / maxTotal,
+                                clipBehavior: Clip.antiAlias,
+                                decoration: BoxDecoration(
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                                child: Column(
+                                  mainAxisAlignment: MainAxisAlignment.end,
+                                  children: [
+                                    if (month.unclassified > 0)
+                                      Container(
+                                        height:
+                                            chartHeight *
+                                            month.unclassified /
+                                            maxTotal,
+                                        color: unclassifiedColor,
+                                      ),
+                                    if (month.adjustable > 0)
+                                      Container(
+                                        height:
+                                            chartHeight *
+                                            month.adjustable /
+                                            maxTotal,
+                                        color: adjustableColor,
+                                      ),
+                                    if (month.baseline > 0)
+                                      Container(
+                                        height:
+                                            chartHeight *
+                                            month.baseline /
+                                            maxTotal,
+                                        color: baselineColor,
+                                      ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                          SizedBox(
+                            height: 20,
+                            child: Center(
+                              child: Text(
+                                '${labels[month.month.month - 1]} ${month.month.year.toString().substring(2)}',
+                                style: Theme.of(context).textTheme.labelSmall,
+                                maxLines: 1,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+        Wrap(
+          alignment: WrapAlignment.center,
+          spacing: 12,
+          runSpacing: 3,
+          children: [
+            _buildChartLegend('Baseline', baselineColor),
+            _buildChartLegend('Adjustable', adjustableColor),
+            _buildChartLegend('Unclassified', unclassifiedColor),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildChartLegend(String label, Color color) => Row(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      Container(
+        width: 9,
+        height: 9,
+        decoration: BoxDecoration(
+          color: color,
+          borderRadius: BorderRadius.circular(2),
+        ),
+      ),
+      const SizedBox(width: 4),
+      Text(label, style: Theme.of(context).textTheme.labelSmall),
+    ],
+  );
 
   Color _groupColor(BaselineGroup group) => switch (group) {
     BaselineGroup.essential => const Color(0xFF1B4D3E),
-    BaselineGroup.committed => const Color(0xFF4267A5),
-    BaselineGroup.discretionary => const Color(0xFF9A5A24),
-    BaselineGroup.potentiallyFlexible => const Color(0xFF477080),
+    BaselineGroup.potentiallyFlexible => const Color(0xFFC56818),
   };
 
   IconData _groupIcon(BaselineGroup group) => switch (group) {
     BaselineGroup.essential => Icons.home_outlined,
-    BaselineGroup.committed => Icons.event_available_outlined,
-    BaselineGroup.discretionary => Icons.spa_outlined,
     BaselineGroup.potentiallyFlexible => Icons.tune_outlined,
   };
 

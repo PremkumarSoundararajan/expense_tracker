@@ -75,3 +75,7 @@ and average amount. Monthly group totals and averages update as mappings
 change. Pocket Ledger checks the expected row-one headers before reading or
 writing connected sheets and reports a layout error if they are missing or
 modified.
+
+## iOS / TestFlight
+
+See [the Windows-to-iOS release guide](docs/ios-release.md) for Google sign-in configuration, manual Codemagic compile/TestFlight workflows, signing setup, and the first-device test checklist.

@@ -18,7 +18,9 @@ class FinancialBaselineSheetsSyncService {
     );
     return [
       for (final row in response.values ?? const <List<Object?>>[])
-        if (row.length >= 2 && row[0].toString().trim().isNotEmpty)
+        if (row.length >= 2 &&
+            row[0].toString().trim().isNotEmpty &&
+            row[1].toString().trim().toLowerCase() != 'unclassified')
           FinancialBaselineMapping(
             merchantFingerprint: row[0].toString().trim(),
             group: BaselineGroup.parse(row[1]),

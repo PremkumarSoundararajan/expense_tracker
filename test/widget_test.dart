@@ -9,6 +9,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -31,7 +32,7 @@ void main() {
   testWidgets('shows the sign-in screen when there is no saved user', (
     WidgetTester tester,
   ) async {
-    await tester.pumpWidget(const PocketLedgerApp());
+    await tester.pumpWidget(PocketLedgerApp(googleSignIn: GoogleSignIn()));
     await tester.pumpAndSettle();
 
     expect(find.text('Sign in with Google'), findsOneWidget);
@@ -45,7 +46,7 @@ void main() {
           (call) => signInResponse.future,
         );
 
-    await tester.pumpWidget(const PocketLedgerApp());
+    await tester.pumpWidget(PocketLedgerApp(googleSignIn: GoogleSignIn()));
     await tester.pump();
 
     final logo = tester.getRect(find.byKey(const ValueKey('loading-logo')));
@@ -66,19 +67,38 @@ void main() {
     expect(find.byType(CircularProgressIndicator), findsOneWidget);
 
     signInResponse.complete(null);
+    await tester.pumpAndSettle();
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
   testWidgets('restores the saved dark-mode preference', (tester) async {
     SharedPreferences.setMockInitialValues({'dark_mode_enabled': true});
 
-    await tester.pumpWidget(const PocketLedgerApp());
+    await tester.pumpWidget(PocketLedgerApp(googleSignIn: GoogleSignIn()));
     await tester.pump();
-    await tester.pump(const Duration(milliseconds: 100));
+    await tester.pumpAndSettle();
 
     expect(
       tester.widget<MaterialApp>(find.byType(MaterialApp)).themeMode,
       ThemeMode.dark,
     );
   });
+
+  testWidgets(
+    'failed credential restore returns to sign-in instead of a startup spinner',
+    (tester) async {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(_googleSignInChannel, (call) async {
+            if (call.method == 'signInSilently') {
+              throw PlatformException(code: 'sign_in_required');
+            }
+            return null;
+          });
+      await tester.pumpWidget(PocketLedgerApp(googleSignIn: GoogleSignIn()));
+      await tester.pumpAndSettle();
+      expect(find.text('Sign in with Google'), findsOneWidget);
+      expect(find.byType(CircularProgressIndicator), findsNothing);
+      expect(tester.takeException(), isNull);
+    },
+  );
 }

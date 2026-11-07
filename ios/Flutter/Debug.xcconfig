@@ -1,1 +1,4 @@
 #include "Generated.xcconfig"
+
+// Local/CI-generated public OAuth identifiers; see docs/ios-release.md.
+#include? "GoogleSignIn.xcconfig"

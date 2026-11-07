@@ -79,18 +79,22 @@ class MerchantDiscoveryService {
     ('ATMOS ENERGY', BaselineGroup.essential, 'Recognized natural gas utility'),
     (
       'NETFLIX',
-      BaselineGroup.discretionary,
+      BaselineGroup.potentiallyFlexible,
       'Recognized entertainment subscription',
     ),
-    ('SPOTIFY', BaselineGroup.discretionary, 'Recognized music subscription'),
+    (
+      'SPOTIFY',
+      BaselineGroup.potentiallyFlexible,
+      'Recognized music subscription',
+    ),
     (
       'DISNEY PLUS',
-      BaselineGroup.discretionary,
+      BaselineGroup.potentiallyFlexible,
       'Recognized entertainment subscription',
     ),
     (
       'YOUTUBE PREMIUM',
-      BaselineGroup.discretionary,
+      BaselineGroup.potentiallyFlexible,
       'Recognized entertainment subscription',
     ),
   ];
@@ -305,7 +309,7 @@ class MerchantDiscoveryService {
         'Transaction category indicates fuel; necessity varies',
       ),
       'FINANCIAL OBLIGATIONS' || 'LOAN' || 'LOAN PAYMENT' => (
-        BaselineGroup.committed,
+        BaselineGroup.essential,
         'Transaction category indicates a financial obligation',
       ),
       _ => null,

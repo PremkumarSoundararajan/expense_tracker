@@ -90,11 +90,30 @@ class FinancialBaselineStore {
 
   Future<void> savePendingSync(FinancialBaselineSyncBatch batch) async {
     final preferences = await SharedPreferences.getInstance();
+    final previous = await loadPendingSync();
+    final upserts = <String, FinancialBaselineMapping>{
+      for (final m in previous?.upserts ?? const <FinancialBaselineMapping>[])
+        m.merchantFingerprint.trim().toLowerCase(): m,
+    };
+    final removals = <String, String>{
+      for (final merchant in previous?.removals ?? const <String>[])
+        merchant.trim().toLowerCase(): merchant,
+    };
+    for (final merchant in batch.removals) {
+      final key = merchant.trim().toLowerCase();
+      upserts.remove(key);
+      removals[key] = merchant;
+    }
+    for (final m in batch.upserts) {
+      final key = m.merchantFingerprint.trim().toLowerCase();
+      removals.remove(key);
+      upserts[key] = m;
+    }
     final saved = await preferences.setString(
       _pendingPreferenceKey,
       jsonEncode({
-        'upserts': batch.upserts.map((mapping) => mapping.toJson()).toList(),
-        'removals': batch.removals,
+        'upserts': upserts.values.map((mapping) => mapping.toJson()).toList(),
+        'removals': removals.values.toList(),
       }),
     );
     if (!saved) throw StateError('Could not queue baseline changes for sync.');
@@ -134,12 +153,6 @@ class FinancialBaselineStore {
         'Stored financial baseline mappings are invalid.',
       );
     }
-    return decoded
-        .whereType<Map>()
-        .map(
-          (row) =>
-              FinancialBaselineMapping.fromJson(Map<String, dynamic>.from(row)),
-        )
-        .toList(growable: false);
+    return FinancialBaselineMapping.migrateStoredRows(decoded);
   }
 }

@@ -71,7 +71,7 @@ void main() {
       ];
       final mappings = [
         _mapping('ONCOR', BaselineGroup.essential),
-        _mapping('WATER', BaselineGroup.committed),
+        _mapping('WATER', BaselineGroup.potentiallyFlexible),
       ];
 
       final matches = service.classify(
@@ -88,7 +88,7 @@ void main() {
       expect(summary.conflictCount, 1);
       expect(summary.conflictAmount, 80);
       expect(summary.essential.monthlyAverage, 40);
-      expect(summary.committed.monthlyAverage, 0);
+      expect(summary.potentiallyFlexible.monthlyAverage, 0);
     });
 
     test('ignores refunds, reversals, transfers and card payments', () {
@@ -123,14 +123,14 @@ void main() {
         ],
         mappings: [
           _mapping('FID BKG SVC', BaselineGroup.essential),
-          _mapping('LOCAL MARKET', BaselineGroup.discretionary),
+          _mapping('LOCAL MARKET', BaselineGroup.potentiallyFlexible),
         ],
       );
 
       expect(summary.ignoredCount, 1);
       expect(summary.trackedSpending, 50);
       expect(summary.essential.monthlyAverage, 0);
-      expect(summary.discretionary.monthlyAverage, 50);
+      expect(summary.potentiallyFlexible.monthlyAverage, 50);
     });
 
     test(
@@ -165,16 +165,16 @@ void main() {
           ],
           mappings: [
             _mapping('RENT', BaselineGroup.essential),
-            _mapping('GYM', BaselineGroup.committed),
-            _mapping('COFFEE', BaselineGroup.discretionary),
+            _mapping('GYM', BaselineGroup.essential),
+            _mapping('COFFEE', BaselineGroup.potentiallyFlexible),
             _mapping('TRAVEL', BaselineGroup.potentiallyFlexible),
             _mapping('RENT', BaselineGroup.essential),
           ],
         );
-        expect(summary.potentiallyFlexible.monthlyAverage, 75);
+        expect(summary.potentiallyFlexible.monthlyAverage, 100);
         expect(summary.potentiallyAdjustableMonthlyAverage, 100);
         expect(summary.identifiedBaselineMonthlyAverage, 350);
-        expect(summary.potentiallyFlexible.annualizedAmount, 900);
+        expect(summary.potentiallyFlexible.annualizedAmount, 1200);
       },
     );
 
@@ -202,7 +202,7 @@ void main() {
         transactions: [_transaction(DateTime(2025, 1), 50, 'ONCOR WATER BILL')],
         mappings: [
           _mapping('ONCOR', BaselineGroup.essential),
-          _mapping('WATER', BaselineGroup.committed),
+          _mapping('WATER', BaselineGroup.potentiallyFlexible),
         ],
       );
 
@@ -243,7 +243,7 @@ void main() {
 
       service.classify(
         transactions: transactions,
-        mappings: [_mapping('COFFEE SHOP', BaselineGroup.discretionary)],
+        mappings: [_mapping('COFFEE SHOP', BaselineGroup.potentiallyFlexible)],
       );
 
       expect(transactions[0].expenseType, ExpenseType.plannedOccasional);
@@ -263,7 +263,7 @@ void main() {
       );
 
       provider.updateMappings([
-        _mapping('RECENT BILL', BaselineGroup.committed),
+        _mapping('RECENT BILL', BaselineGroup.essential),
       ]);
 
       expect(provider.transactions, hasLength(2));
@@ -286,7 +286,7 @@ void main() {
       final secondStore = FinancialBaselineStore(accountKey: 'other@email.com');
       final mappings = [
         _mapping('ONCOR', BaselineGroup.essential),
-        _mapping('NETFLIX', BaselineGroup.committed),
+        _mapping('NETFLIX', BaselineGroup.essential),
       ];
 
       await firstStore.saveMappings(mappings);
@@ -299,7 +299,7 @@ void main() {
 
     test('recovers an unfinished draft and queued sync batch', () async {
       final store = FinancialBaselineStore(accountKey: 'Person@Email.com');
-      final committed = _mapping('RENT', BaselineGroup.committed);
+      final committed = _mapping('RENT', BaselineGroup.essential);
       final draft = _mapping('RENT', BaselineGroup.essential);
       await store.saveDraft(
         FinancialBaselineDraft(
@@ -340,7 +340,7 @@ void main() {
         expect(mappings, [
           _mapping('ONCOR', BaselineGroup.essential),
           _mapping('ATMOS ENERGY', BaselineGroup.essential),
-          _mapping('NETFLIX', BaselineGroup.committed),
+          _mapping('NETFLIX', BaselineGroup.essential),
         ]);
         final preferences = await SharedPreferences.getInstance();
         expect(preferences.getString(accountOneKey), isNotNull);

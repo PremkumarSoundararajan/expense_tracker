@@ -70,10 +70,9 @@ class FinancialBaselineSummary {
   double get trackedMonthlyAverage =>
       monthCount == 0 ? 0 : trackedSpending / monthCount;
   double get trackedAnnualizedAmount => trackedMonthlyAverage * 12;
-  double get identifiedBaselineMonthlyAverage =>
-      essential.monthlyAverage + committed.monthlyAverage;
+  double get identifiedBaselineMonthlyAverage => essential.monthlyAverage;
   double get potentiallyAdjustableMonthlyAverage =>
-      discretionary.monthlyAverage + potentiallyFlexible.monthlyAverage;
+      potentiallyFlexible.monthlyAverage;
   double get classifiedAmount => (trackedSpending - unclassifiedAmount)
       .clamp(0, trackedSpending)
       .toDouble();
@@ -84,9 +83,6 @@ class FinancialBaselineSummary {
       ? 0
       : (unclassifiedAmount / trackedSpending * 100).clamp(0, 100).toDouble();
   BaselineGroupMetrics get essential => metrics[BaselineGroup.essential]!;
-  BaselineGroupMetrics get committed => metrics[BaselineGroup.committed]!;
-  BaselineGroupMetrics get discretionary =>
-      metrics[BaselineGroup.discretionary]!;
   BaselineGroupMetrics get potentiallyFlexible =>
       metrics[BaselineGroup.potentiallyFlexible]!;
 }

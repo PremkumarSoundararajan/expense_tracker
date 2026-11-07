@@ -43,13 +43,13 @@ void main() {
         confirmedMappings: const [
           FinancialBaselineMapping(
             merchantFingerprint: 'ATMOS ENERGY',
-            group: BaselineGroup.committed,
+            group: BaselineGroup.essential,
           ),
         ],
       );
 
       expect(suggestions.single.state, MerchantClassificationState.confirmed);
-      expect(suggestions.single.group, BaselineGroup.committed);
+      expect(suggestions.single.group, BaselineGroup.essential);
       expect(suggestions.single.source, MerchantSuggestionSource.userMapping);
     });
 
@@ -65,7 +65,7 @@ void main() {
           .single;
 
       expect(suggestion.state, MerchantClassificationState.suggested);
-      expect(suggestion.group, BaselineGroup.discretionary);
+      expect(suggestion.group, BaselineGroup.potentiallyFlexible);
       expect(suggestion.confidence, MerchantSuggestionConfidence.high);
       expect(suggestion.source, MerchantSuggestionSource.systemRule);
       expect(suggestion.reason, contains('entertainment subscription'));
@@ -131,7 +131,7 @@ void main() {
             )
             .single;
 
-        expect(suggestion.group, BaselineGroup.discretionary);
+        expect(suggestion.group, BaselineGroup.potentiallyFlexible);
         expect(suggestion.confidence, MerchantSuggestionConfidence.high);
       },
     );
