@@ -40,7 +40,7 @@ workflows:
       - name: Fetch Apple signing files automatically
         script: |
           app-store-connect fetch-signing-files "$BUNDLE_ID" \
-            --type APP_STORE \
+            --type ios_app_store \
             --create
       - name: Apply Apple signing profiles
         script: xcode-project use-profiles
