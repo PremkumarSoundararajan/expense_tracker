@@ -11,9 +11,6 @@ workflows:
         - pocket_ledger_ios
       vars:
         BUNDLE_ID: "com.premkumar.pocketledger"
-      ios_signing:
-        distribution_type: app_store
-        bundle_identifier: com.premkumar.pocketledger
     cache:
       cache_paths:
         - $HOME/.pub-cache
@@ -46,6 +43,7 @@ workflows:
             --issuer-id "$APP_STORE_CONNECT_ISSUER_ID" \
             --key-id "$APP_STORE_CONNECT_KEY_IDENTIFIER" \
             --private-key "$APP_STORE_CONNECT_PRIVATE_KEY" \
+            --certificate-key "$CERTIFICATE_PRIVATE_KEY" \
             --type IOS_APP_STORE \
             --create
       - name: Apply Apple signing profiles
