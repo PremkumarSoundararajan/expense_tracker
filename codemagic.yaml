@@ -37,6 +37,13 @@ workflows:
           test/google_drive_permission_service_test.dart
           test/statement_file_reader_test.dart
           test/daily_reminder_settings_dialog_test.dart
+      - name: Debug credentials
+        script: |
+          echo "Issuer length: ${#APP_STORE_CONNECT_ISSUER_ID}"
+          echo "Key ID length: ${#APP_STORE_CONNECT_KEY_IDENTIFIER}"
+          echo "Key ID: $APP_STORE_CONNECT_KEY_IDENTIFIER"
+          echo "$APP_STORE_CONNECT_PRIVATE_KEY" | head -1
+          echo "$APP_STORE_CONNECT_PRIVATE_KEY" | tail -1
       - name: Fetch Apple signing files automatically
         script: |
           app-store-connect fetch-signing-files "$BUNDLE_ID" \
