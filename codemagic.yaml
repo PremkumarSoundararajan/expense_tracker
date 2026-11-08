@@ -11,6 +11,9 @@ workflows:
         - pocket_ledger_ios
       vars:
         BUNDLE_ID: "com.premkumar.pocketledger"
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: com.premkumar.pocketledger
     cache:
       cache_paths:
         - $HOME/.pub-cache
