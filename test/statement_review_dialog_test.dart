@@ -61,7 +61,7 @@ void main() {
     final confirm = find.byKey(
       const ValueKey('statement-review-confirm-import'),
     );
-    expect(find.text('Review statement before import'), findsOneWidget);
+    expect(find.text('Confirm statement import'), findsOneWidget);
     expect(find.textContaining('2 non-expense or unreadable'), findsOneWidget);
     expect(confirm, findsOneWidget);
     expect(find.text('Cancel'), findsOneWidget);
@@ -70,7 +70,13 @@ void main() {
       lessThanOrEqualTo(tester.view.physicalSize.height),
     );
 
+    expect(find.byType(DropdownButtonFormField<String>), findsNothing);
+    await tester.tap(
+      find.byKey(const ValueKey('statement-edit-classifications')),
+    );
+    await tester.pumpAndSettle();
     final category = find.byType(DropdownButtonFormField<String>).first;
+    await tester.ensureVisible(category);
     await tester.tap(category);
     await tester.pumpAndSettle();
     await tester.tap(find.text('Transport').last);
@@ -78,7 +84,7 @@ void main() {
 
     await tester.drag(find.byType(ListView), const Offset(0, -350));
     await tester.pumpAndSettle();
-    expect(find.text('Review statement before import'), findsOneWidget);
+    expect(find.text('Confirm statement import'), findsOneWidget);
     expect(confirm, findsOneWidget);
     expect(
       tester.getRect(confirm).bottom,

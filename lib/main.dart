@@ -7,7 +7,7 @@ import 'package:file_picker/file_picker.dart';
 
 import 'services/statement_file_picker_options.dart';
 
-import 'package:excel_community/excel_community.dart';
+import 'package:excel_community/excel_community.dart' hide Border;
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:googleapis/drive/v3.dart' as drive;
 import 'package:googleapis/sheets/v4.dart' as sheets;
@@ -52,6 +52,7 @@ import 'widgets/monthly_budget_target_dialog.dart';
 import 'widgets/spending_summary_widget.dart';
 import 'widgets/suggested_budget_sheet.dart';
 import 'widgets/statement_review_dialog.dart';
+import 'widgets/statement_import_complete_dialog.dart';
 import 'utils/currency_format.dart';
 import 'utils/transaction_period_format.dart';
 
@@ -1052,11 +1053,13 @@ class _DashboardScreenState extends State<DashboardScreen>
   }
 
   Future<List<Transaction>> _readSheetTransactions(
-    sheets.SheetsApi sheetsApi,
-  ) async {
+    sheets.SheetsApi sheetsApi, {
+    String? spreadsheetId,
+  }) async {
+    final targetId = spreadsheetId ?? _spreadsheetId!;
     await _googleSheetsService.validateSheetHeaders(
       sheetsApi: sheetsApi,
-      spreadsheetId: _spreadsheetId!,
+      spreadsheetId: targetId,
       range: 'Sheet1!A1:G1',
       expected: GoogleSheetsService.transactionHeaders,
       acceptedAlternatives: const {
@@ -1071,7 +1074,7 @@ class _DashboardScreenState extends State<DashboardScreen>
       },
     );
     final response = await sheetsApi.spreadsheets.values.get(
-      _spreadsheetId!,
+      targetId,
       'Sheet1!A1:G',
     );
     final transactions = <Transaction>[];
@@ -1128,7 +1131,7 @@ class _DashboardScreenState extends State<DashboardScreen>
     if (needsIdMigration) {
       await sheetsApi.spreadsheets.values.update(
         sheets.ValueRange(values: identifiers),
-        _spreadsheetId!,
+        targetId,
         'Sheet1!F2:F${rows.length + 1}',
         valueInputOption: 'RAW',
       );
@@ -1136,7 +1139,7 @@ class _DashboardScreenState extends State<DashboardScreen>
     if (needsCategoryIdMigration) {
       await sheetsApi.spreadsheets.values.update(
         sheets.ValueRange(values: categoryIdentifiers),
-        _spreadsheetId!,
+        targetId,
         'Sheet1!G2:G${rows.length + 1}',
         valueInputOption: 'RAW',
       );
@@ -1322,6 +1325,7 @@ class _DashboardScreenState extends State<DashboardScreen>
   }
 
   bool _showRemainingClassification = false;
+  bool _reviewUnknownOnly = false;
   int _classificationEntry = 0;
   void _reviewRemainingClassification() {
     final dashboard = ModalRoute.of(context);
@@ -1331,6 +1335,7 @@ class _DashboardScreenState extends State<DashboardScreen>
     setState(() {
       _selectedTab = 2;
       _showRemainingClassification = true;
+      _reviewUnknownOnly = true;
       _classificationEntry++;
     });
   }
@@ -1338,7 +1343,7 @@ class _DashboardScreenState extends State<DashboardScreen>
   Widget _merchantPanel() => MerchantBaselinePanel(
     key: ValueKey('merchant-panel-$_classificationEntry'),
     showRemainingInitially: _showRemainingClassification,
-    reviewUnknownInitially: _showRemainingClassification,
+    reviewUnknownInitially: _reviewUnknownOnly,
     transactions: _transactions,
     categories: _activeExpenseCategories,
     legacyMappings: _baselineMappings,
@@ -1753,6 +1758,60 @@ class _DashboardScreenState extends State<DashboardScreen>
     }
   }
 
+  Future<void> _classifyImportedMerchants(String spreadsheetId) async {
+    if (spreadsheetId == _spreadsheetId) {
+      setState(() {
+        _selectedTab = 2;
+        _showRemainingClassification = true;
+        _reviewUnknownOnly = false;
+        _classificationEntry++;
+      });
+      return;
+    }
+    try {
+      final client = await _googleSignIn.authenticatedClient();
+      if (client == null)
+        throw StateError('Sign in again to classify this statement.');
+      final api = sheets.SheetsApi(client);
+      final raw = await _readSheetTransactions(
+        api,
+        spreadsheetId: spreadsheetId,
+      );
+      await _merchantStore.synchronize(api, spreadsheetId, raw);
+      if (!mounted) return;
+      await Navigator.of(context).push<void>(
+        MaterialPageRoute(
+          builder: (_) => Scaffold(
+            appBar: AppBar(title: const Text('Financial Baseline')),
+            body: SingleChildScrollView(
+              child: MerchantBaselinePanel(
+                transactions: raw,
+                categories: _activeExpenseCategories,
+                legacyMappings: _baselineMappings,
+                store: _merchantStore,
+                currencySymbol: _currency,
+                historyComplete: true,
+                showRemainingInitially: true,
+                onSaved: (changes) async {
+                  await _merchantStore.save(changes);
+                  final fresh = await _readSheetTransactions(
+                    api,
+                    spreadsheetId: spreadsheetId,
+                  );
+                  return _merchantStore.synchronize(api, spreadsheetId, fresh);
+                },
+              ),
+            ),
+          ),
+        ),
+      );
+    } catch (error) {
+      _showMessage(
+        'Expenses are imported. Could not open classification: $error',
+      );
+    }
+  }
+
   Future<void> _uploadStatementToWorker() async {
     if (_isWorkerSyncing) return;
 
@@ -1903,31 +1962,7 @@ class _DashboardScreenState extends State<DashboardScreen>
         categoryConfig: _categoryConfiguration,
       );
       if (!mounted) return;
-      final importIndex = _merchantStore.index;
-      final preview = WorkerCsvPreview(
-        spreadsheetId: workerPreview.spreadsheetId,
-        spreadsheetCreated: workerPreview.spreadsheetCreated,
-        filteredCount: workerPreview.filteredCount,
-        duplicateCount: workerPreview.duplicateCount,
-        rows: workerPreview.rows.map((row) {
-          final effective = importIndex.apply(
-            Transaction(
-              date: DateTime.parse(row.date),
-              amount: row.amount,
-              category: row.category,
-              expenseType: ExpenseType.parse(row.expenseType),
-              categoryId: row.categoryId,
-              description: row.description,
-              id: row.transactionId,
-            ),
-          );
-          return row.withMerchantCategory(
-            effective.category,
-            effective.categoryId,
-            expenseTypeValue: effective.expenseType.sheetValue,
-          );
-        }).toList(),
-      );
+      final preview = workerPreview;
       final targetSpreadsheetId = preview.spreadsheetId;
       final spreadsheetCreated = preview.spreadsheetCreated;
       await _rememberWorkerSpreadsheetId(targetSpreadsheetId);
@@ -2065,6 +2100,15 @@ class _DashboardScreenState extends State<DashboardScreen>
         }
         await _fetchData();
         await _showImportTargetSummary(changes);
+      }
+      if (mounted && (importedCount > 0 || updatedCount > 0)) {
+        final classify = await showDialog<bool>(
+          context: context,
+          builder: (_) =>
+              StatementImportCompleteDialog(summary: '$outcome$duplicateNote'),
+        );
+        if (classify == true && mounted)
+          await _classifyImportedMerchants(targetSpreadsheetId);
       }
     } catch (error, stackTrace) {
       debugPrint('[import] FAILED: $error\n$stackTrace');
@@ -2920,140 +2964,179 @@ class _DashboardScreenState extends State<DashboardScreen>
               const LinearProgressIndicator(),
               const SizedBox(height: 12),
             ],
-            ConstrainedBox(
-              constraints: const BoxConstraints(minHeight: 116),
-              child: Card(
-                margin: EdgeInsets.zero,
-                clipBehavior: Clip.antiAlias,
-                child: ExpansionTile(
-                  key: const ValueKey('home-month-summary'),
-                  tilePadding: const EdgeInsets.symmetric(
-                    horizontal: 14,
-                    vertical: 6,
-                  ),
-                  title: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        formatMonthHeading(_heroMonth, now: DateTime.now()),
-                        style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                          fontWeight: FontWeight.w700,
-                          color: Theme.of(context).colorScheme.onSurfaceVariant,
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        formatWholeCurrency(monthSpending.total, _currency),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.headlineMedium
-                            ?.copyWith(
-                              fontWeight: FontWeight.bold,
-                              color: Theme.of(context).colorScheme.primary,
-                            ),
-                      ),
-                    ],
-                  ),
-                  subtitle: Text(
-                    monthSubtitle,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                  childrenPadding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-                  children: [
-                    MonthlyBudgetCard(
-                      spending: monthSpending,
-
-                      onReviewUnclassified: _reviewMonthUnclassified,
-                      currentSpent: _calculateTotal(
-                        'month',
-                        targetMonth: _heroMonth,
-                      ),
-                      regularSpent: _calculateTotal(
-                        'month',
-                        expenseType: ExpenseType.regular,
-                        targetMonth: _heroMonth,
-                      ),
-                      plannedOccasionalSpent: _calculateTotal(
-                        'month',
-                        expenseType: ExpenseType.plannedOccasional,
-                        targetMonth: _heroMonth,
-                      ),
-                      unexpectedOccasionalSpent: _calculateTotal(
-                        'month',
-                        expenseType: ExpenseType.unexpectedOccasional,
-                        targetMonth: _heroMonth,
-                      ),
-                      currencySymbol: _currency,
-                      monthlyTarget: isSameMonth(_heroMonth, DateTime.now())
-                          ? _monthlyTarget
-                          : _heroMonthBudget,
-                      rolloverRecap: monthlyRolloverRecap,
-                      selectedMonth: _heroMonth,
-                      availableMonths: availableLedgerMonths(_transactions),
-                      onMonthSelected: _selectHeroMonth,
-                      onCalendarPressed: () => _showCategoryBreakdown(
-                        // Same call shape the card uses for its own heading.
-                        formatMonthHeading(_heroMonth, now: DateTime.now()),
-                        'month',
-                        targetMonth: _heroMonth,
-                      ),
-                      onSetTargetPressed: _showMonthlyTargetDialog,
-                    ),
-                  ],
+            Container(
+              key: const ValueKey('home-spending-summary'),
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.surfaceContainerHighest
+                    .withValues(alpha: .3),
+                border: Border.all(
+                  color: Theme.of(context).colorScheme.outlineVariant,
                 ),
+                borderRadius: BorderRadius.circular(24),
               ),
-            ),
-            SizedBox(height: isWide ? 10 : 8),
-            Row(
-              children: [
-                Expanded(
-                  child: GestureDetector(
-                    onTap: () => _showCategoryBreakdown('Today', 'today'),
-                    child: SizedBox(
-                      height: 116,
-                      child: _SummaryCard(
-                        title: 'TODAY',
-                        amount: formatWholeCurrency(
-                          _calculateTotal('today'),
-                          _currency,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(minHeight: 116),
+                    child: Card(
+                      margin: EdgeInsets.zero,
+                      clipBehavior: Clip.antiAlias,
+                      child: ExpansionTile(
+                        key: const ValueKey('home-month-summary'),
+                        tilePadding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 6,
                         ),
-                        subtitle: formatExpenseCount(todayExpenseCount),
-                        icon: Icons.calendar_today,
-                        matchPanels: isWide,
+                        title: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              formatMonthHeading(
+                                _heroMonth,
+                                now: DateTime.now(),
+                              ),
+                              style: Theme.of(context).textTheme.labelLarge
+                                  ?.copyWith(
+                                    fontWeight: FontWeight.w700,
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .onSurfaceVariant,
+                                  ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              formatWholeCurrency(
+                                monthSpending.total,
+                                _currency,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: Theme.of(context).textTheme.headlineMedium
+                                  ?.copyWith(
+                                    fontWeight: FontWeight.bold,
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .primary,
+                                  ),
+                            ),
+                          ],
+                        ),
+                        subtitle: Text(
+                          monthSubtitle,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                        childrenPadding: const EdgeInsets.fromLTRB(
+                          12,
+                          0,
+                          12,
+                          12,
+                        ),
+                        children: [
+                          MonthlyBudgetCard(
+                            spending: monthSpending,
+
+                            onReviewUnclassified: _reviewMonthUnclassified,
+                            currentSpent: _calculateTotal(
+                              'month',
+                              targetMonth: _heroMonth,
+                            ),
+                            regularSpent: _calculateTotal(
+                              'month',
+                              expenseType: ExpenseType.regular,
+                              targetMonth: _heroMonth,
+                            ),
+                            plannedOccasionalSpent: _calculateTotal(
+                              'month',
+                              expenseType: ExpenseType.plannedOccasional,
+                              targetMonth: _heroMonth,
+                            ),
+                            unexpectedOccasionalSpent: _calculateTotal(
+                              'month',
+                              expenseType: ExpenseType.unexpectedOccasional,
+                              targetMonth: _heroMonth,
+                            ),
+                            currencySymbol: _currency,
+                            monthlyTarget:
+                                isSameMonth(_heroMonth, DateTime.now())
+                                ? _monthlyTarget
+                                : _heroMonthBudget,
+                            rolloverRecap: monthlyRolloverRecap,
+                            selectedMonth: _heroMonth,
+                            availableMonths: availableLedgerMonths(
+                              _transactions,
+                            ),
+                            onMonthSelected: _selectHeroMonth,
+                            onCalendarPressed: () => _showCategoryBreakdown(
+                              // Same call shape the card uses for its own heading.
+                              formatMonthHeading(
+                                _heroMonth,
+                                now: DateTime.now(),
+                              ),
+                              'month',
+                              targetMonth: _heroMonth,
+                            ),
+                            onSetTargetPressed: _showMonthlyTargetDialog,
+                          ),
+                        ],
                       ),
                     ),
                   ),
-                ),
-                SizedBox(width: isWide ? 16 : 12),
-                Expanded(
-                  child: GestureDetector(
-                    onTap: () => _showCategoryBreakdown(
-                      'This Year',
-                      'year',
-                      targetMonth: monthStart(DateTime.now()),
-                    ),
-                    child: SizedBox(
-                      height: 116,
-                      child: _SummaryCard(
-                        title: 'THIS YEAR',
-                        amount: formatWholeCurrency(
-                          _calculateTotal(
+                  SizedBox(height: isWide ? 10 : 8),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: GestureDetector(
+                          onTap: () => _showCategoryBreakdown('Today', 'today'),
+                          child: SizedBox(
+                            height: screenWidth < 360 ? 132 : 116,
+                            child: _SummaryCard(
+                              title: 'TODAY',
+                              amount: formatWholeCurrency(
+                                _calculateTotal('today'),
+                                _currency,
+                              ),
+                              subtitle: formatExpenseCount(todayExpenseCount),
+                              icon: Icons.calendar_today,
+                              matchPanels: isWide,
+                            ),
+                          ),
+                        ),
+                      ),
+                      SizedBox(width: isWide ? 16 : 12),
+                      Expanded(
+                        child: GestureDetector(
+                          onTap: () => _showCategoryBreakdown(
+                            'This Year',
                             'year',
                             targetMonth: monthStart(DateTime.now()),
                           ),
-                          _currency,
+                          child: SizedBox(
+                            height: screenWidth < 360 ? 132 : 116,
+                            child: _SummaryCard(
+                              title: 'THIS YEAR',
+                              amount: formatWholeCurrency(
+                                _calculateTotal(
+                                  'year',
+                                  targetMonth: monthStart(DateTime.now()),
+                                ),
+                                _currency,
+                              ),
+                              subtitle: 'Total actual spending',
+                              icon: Icons.show_chart,
+                              matchPanels: isWide,
+                            ),
+                          ),
                         ),
-                        subtitle: 'Total actual spending',
-                        icon: Icons.show_chart,
-                        matchPanels: isWide,
                       ),
-                    ),
+                    ],
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ];
 
@@ -3206,7 +3289,7 @@ class _DashboardScreenState extends State<DashboardScreen>
       case 0:
         selectedPage = scrollablePage([
           ...dashboardWidgets,
-          const SizedBox(height: 12),
+          const SizedBox(height: 24),
           ...entryWidgets,
           const SizedBox(height: 14),
           Row(
@@ -3533,10 +3616,39 @@ class _DashboardScreenState extends State<DashboardScreen>
     const tabTitles = ['Pocket Ledger', 'Expenses', 'Insights', 'Settings'];
     return Scaffold(
       appBar: AppBar(
-        title: Text(
-          tabTitles[_selectedTab],
-          style: const TextStyle(fontWeight: FontWeight.bold),
-        ),
+        title: _selectedTab == 0
+            ? Row(
+                children: [
+                  Container(
+                    key: const ValueKey('home-brand-logo'),
+                    width: 36,
+                    height: 36,
+                    padding: const EdgeInsets.all(5),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFE2E8E6),
+                      borderRadius: BorderRadius.circular(9),
+                    ),
+                    child: Image.asset(
+                      'assets/images/app_icon_foreground.png',
+                      fit: BoxFit.contain,
+                      excludeFromSemantics: true,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  const Flexible(
+                    child: Text(
+                      'Pocket Ledger',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                ],
+              )
+            : Text(
+                tabTitles[_selectedTab],
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
       ),
       body: selectedPage,
       bottomNavigationBar: NavigationBar(
@@ -3545,6 +3657,7 @@ class _DashboardScreenState extends State<DashboardScreen>
           _selectedTab = index;
           if (_showRemainingClassification) {
             _showRemainingClassification = false;
+            _reviewUnknownOnly = false;
             _classificationEntry++;
           }
         }),
@@ -3734,14 +3847,19 @@ class _SummaryCard extends StatelessWidget {
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Text(
-              title,
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.bold,
-                color: colorScheme.onSurfaceVariant,
+            Expanded(
+              child: Text(
+                title,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                  color: colorScheme.onSurfaceVariant,
+                ),
               ),
             ),
+            const SizedBox(width: 4),
             Icon(icon, size: 18, color: colorScheme.primary),
           ],
         ),

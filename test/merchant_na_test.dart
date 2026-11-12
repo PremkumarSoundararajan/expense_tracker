@@ -184,13 +184,16 @@ void main() {
         '1001',
       );
       await tester.pumpAndSettle();
-      expect(
-        find.textContaining(r'$100 (10.0% of total spending)'),
-        findsOneWidget,
-      );
+      expect(find.text('Exclude all merchants <'), findsOneWidget);
+      expect(find.textContaining('would be excluded'), findsNothing);
+      expect(find.textContaining('Saved rule for current'), findsNothing);
       expect(find.byKey(const ValueKey('na-impact-warning')), findsOneWidget);
       await tester.tap(find.byKey(const ValueKey('save-na-threshold')));
       await tester.pumpAndSettle();
+      expect(
+        find.textContaining(r'total expenses are below $1,001'),
+        findsOneWidget,
+      );
       expect(find.byKey(const ValueKey('review-na')), findsOneWidget);
       expect(store.records.values.where((r) => r['na'] == true).length, 2);
       expect(store.records['m:alpha']?['na'], isNot(true));
@@ -200,6 +203,8 @@ void main() {
       );
       expect(find.byKey(const ValueKey('na-threshold-toggle')), findsNothing);
       expect(find.text('NA'), findsWidgets);
+      await tester.pump(const Duration(seconds: 5));
+      await tester.pumpAndSettle();
       // Return later to the same account: NA is reviewable and reversible.
       final menu = find.byTooltip('Merchant actions').first;
       await tester.ensureVisible(menu);

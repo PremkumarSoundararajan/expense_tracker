@@ -1,3 +1,5 @@
+> Current behavior: see [import-first.md](import-first.md). Exclusion is now a saved policy evaluated against committed ledger totals, replacing the earlier one-time behavior described below.
+
 # Small-merchant NA workflow
 
 In Financial Baseline, choose **Unclassified** and open **Bulk update small merchants as NA**

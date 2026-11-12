@@ -212,7 +212,10 @@ class WorkerExpensePreview {
       existingCategory != null &&
       category.trim().toLowerCase() != existingCategory!.trim().toLowerCase();
   bool get willImport =>
-      !duplicate || importAnyway || categoryChanged || expenseTypeEdited;
+      !duplicate ||
+      importAnyway ||
+      (userEdited && categoryChanged) ||
+      expenseTypeEdited;
 
   factory WorkerExpensePreview.fromJson(Map<String, dynamic> json) {
     final description = json['description']?.toString() ?? '';

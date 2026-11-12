@@ -152,6 +152,8 @@ class _MerchantBaselinePanelState extends State<MerchantBaselinePanel> {
       for (final r in widget.store.records.values)
         r['id'] as String: Map<String, dynamic>.from(r),
     };
+    final savedLimit = widget.store.records[merchantNaPolicyId]?['threshold'];
+    if (savedLimit is num) _naThreshold.text = savedLimit.toString();
     _draft.addAll(widget.store.draft);
     _changed.addAll(widget.store.draft.keys);
     _prepare();
@@ -368,17 +370,13 @@ class _MerchantBaselinePanelState extends State<MerchantBaselinePanel> {
       return;
     }
     final preview = _unclassifiedNaPreview(threshold);
-    if (preview.groups.isEmpty) {
-      setState(
-        () => _naError = 'No unclassified merchants have a positive total below this amount.',
-      );
-      return;
-    }
     final index = _index;
     setState(() {
       _naError = null;
+      _draft[merchantNaPolicyId] = merchantNaPolicyRecord(threshold);
+      _changed.add(merchantNaPolicyId);
       for (final group in preview.groups) {
-        final record = merchantNaRecord(group, index);
+        final record = merchantNaRecord(group, index, threshold: threshold);
         _draft[record['id'] as String] = record;
         _changed.add(record['id'] as String);
       }
@@ -387,12 +385,20 @@ class _MerchantBaselinePanelState extends State<MerchantBaselinePanel> {
       _persistDraft();
     });
     await _save();
-    if (mounted && _changed.isEmpty)
+    if (mounted && _changed.isEmpty) {
       setState(() {
         _view = 'na';
         _query = '';
         _showNaControls = false;
       });
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        SnackBar(
+          content: Text(
+            'Merchants stay excluded while their total expenses are below ${money(threshold)}.',
+          ),
+        ),
+      );
+    }
   }
 
   MerchantNaPreview _unclassifiedNaPreview(double threshold) {
@@ -451,52 +457,55 @@ class _MerchantBaselinePanelState extends State<MerchantBaselinePanel> {
           ),
         ),
         if (_showNaControls) ...[
-          const Text(
-            'For unclassified merchants with total recorded expenses less than:',
-          ),
-          Row(
-            children: [
-              Expanded(
-                child: TextField(
-                  key: const ValueKey('na-threshold'),
-                  controller: _naThreshold,
-                  enabled: !_saving,
-                  keyboardType: const TextInputType.numberWithOptions(
-                    decimal: true,
+          const SizedBox(height: 8),
+          LayoutBuilder(
+            builder: (context, constraints) => Row(
+              children: [
+                const Flexible(child: Text('Exclude all merchants <')),
+                const SizedBox(width: 8),
+                SizedBox(
+                  width: constraints.maxWidth > 500
+                      ? 160
+                      : (constraints.maxWidth * .28).clamp(70, 120).toDouble(),
+                  child: TextField(
+                    key: const ValueKey('na-threshold'),
+                    controller: _naThreshold,
+                    enabled: !_saving,
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
+                    decoration: InputDecoration(
+                      prefixText: widget.currencySymbol,
+                      hintText: 'Amount',
+                      isDense: true,
+                      border: const OutlineInputBorder(),
+                    ),
+                    onChanged: (_) => setState(() => _naError = null),
                   ),
-                  decoration: InputDecoration(
-                    prefixText: widget.currencySymbol,
-                    hintText: 'Amount',
-                    isDense: true,
-                    border: const OutlineInputBorder(),
-                    errorText: _naError,
-                  ),
-                  onChanged: (_) => setState(() => _naError = null),
                 ),
-              ),
-              const SizedBox(width: 8),
-              FilledButton(
-                key: const ValueKey('save-na-threshold'),
-                onPressed: _saving ? null : _applyNa,
-                child: const Text('Exclude'),
-              ),
-            ],
+                const SizedBox(width: 8),
+                FilledButton(
+                  key: const ValueKey('save-na-threshold'),
+                  onPressed: _saving ? null : _applyNa,
+                  child: const Text('Exclude'),
+                ),
+              ],
+            ),
           ),
-          if (preview != null)
+          if (_naError != null)
             Text(
-              '${preview.groups.length} merchants · ${preview.transactions} transactions · ${money(preview.amount)} (${preview.spendingPercent.toStringAsFixed(1)}% of total spending) would be excluded.',
-              style: const TextStyle(fontSize: 12),
+              _naError!,
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.error,
+                fontSize: 12,
+              ),
             ),
           if (preview != null && preview.transactionPercent > 25)
             Text(
-              'This marks ${preview.transactionPercent.toStringAsFixed(1)}% of transactions NA (over 25%) and may affect insights.',
+              'Excludes ${preview.transactionPercent.toStringAsFixed(1)}% of transactions (over 25%); this may affect insights.',
               key: const ValueKey('na-impact-warning'),
               style: const TextStyle(fontSize: 12),
             ),
-          const Text(
-            'Marks all three classifications NA and moves these merchants to Excluded. Spending stays in totals and budgets; transaction exceptions are preserved. Future transactions inherit the merchant choice.',
-            style: TextStyle(fontSize: 11),
-          ),
         ],
       ],
     );

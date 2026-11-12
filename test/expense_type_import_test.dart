@@ -170,6 +170,10 @@ void main() {
       );
       await tester.tap(find.text('Open'));
       await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(const ValueKey('statement-edit-classifications')),
+      );
+      await tester.pumpAndSettle();
       await tester.tap(find.text('Unknown (2)'));
       await tester.pumpAndSettle();
       expect(find.text('Shop 2'), findsNothing);

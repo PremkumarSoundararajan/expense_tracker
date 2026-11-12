@@ -84,6 +84,10 @@ class MerchantClassificationIndex {
   final exceptions = <String, Map<String, dynamic>>{};
   final ambiguous = <String>{};
 
+  bool isAmbiguous(String description) =>
+      ambiguous.contains(merchantClassificationKey(description)) ||
+      ambiguousNames.contains(_names.keyFor(description));
+
   Map<String, dynamic>? merchantFor(String description) {
     final key = merchantClassificationKey(description);
     final canonical = _names.keyFor(description);

@@ -33,17 +33,19 @@ class _StatementReviewDialogState extends State<StatementReviewDialog> {
 
   final Set<int> _selected = {};
   bool _unknownOnly = false;
+  bool _editClassifications = false;
   Widget _typeControls(int index) {
     final row = _rows[index];
     return Row(
       children: [
-        Checkbox(
-          key: ValueKey('statement-select-$index'),
-          value: _selected.contains(index),
-          onChanged: (value) => setState(() {
-            value == true ? _selected.add(index) : _selected.remove(index);
-          }),
-        ),
+        if (MediaQuery.sizeOf(context).height >= 740)
+          Checkbox(
+            key: ValueKey('statement-select-$index'),
+            value: _selected.contains(index),
+            onChanged: (value) => setState(() {
+              value == true ? _selected.add(index) : _selected.remove(index);
+            }),
+          ),
         Expanded(
           child: DropdownButtonFormField<String>(
             key: ValueKey('statement-type-$index-${row.expenseType}'),
@@ -121,7 +123,7 @@ class _StatementReviewDialogState extends State<StatementReviewDialog> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'Review statement before import',
+                            'Confirm statement import',
                             style: isNarrow
                                 ? theme.textTheme.titleMedium
                                 : theme.textTheme.titleLarge,
@@ -143,92 +145,122 @@ class _StatementReviewDialogState extends State<StatementReviewDialog> {
                 child: Align(
                   alignment: Alignment.centerLeft,
                   child: Text(
-                    widget.emailReview
-                        ? '${_rows.length} selected email expense(s). Review categories and Expense Types before approving. Possible duplicates need explicit review.'
-                        : '${_rows.length} expense(s) found. Review each category; '
-                              '${widget.preview.filteredCount} non-expense or unreadable '
-                              'row(s) were excluded.'
-                              '${widget.preview.duplicateCount > 0 ? ' ${widget.preview.duplicateCount} row(s) match transactions already in your sheet. Changed categories or Expense Types update the matched row; tick "Import anyway" to add another copy.' : ''}',
+                    '${_rows.length} transactions found · ${widget.preview.filteredCount} non-expense or unreadable rows excluded. '
+                    'Check the transactions now; classify merchants after import.'
+                    '${widget.preview.duplicateCount > 0 ? ' ${widget.preview.duplicateCount} already recorded; skipped unless you choose Import anyway.' : ''}',
                     maxLines: isNarrow ? 3 : null,
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
               ),
               Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                child: Column(
-                  children: [
-                    Row(
-                      children: [
-                        FilterChip(
-                          label: Text('Unknown (${unknown.length})'),
-                          selected: _unknownOnly,
-                          onSelected: (v) => setState(() => _unknownOnly = v),
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            '${widget.currencySymbol}${unknown.fold<double>(0, (sum, r) => sum + r.amount).toStringAsFixed(2)} needs review',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                      ],
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: TextButton.icon(
+                    key: const ValueKey('statement-edit-classifications'),
+                    onPressed: () => setState(() {
+                      _editClassifications = !_editClassifications;
+                      _unknownOnly = false;
+                    }),
+                    icon: Icon(
+                      _editClassifications
+                          ? Icons.expand_less
+                          : Icons.edit_outlined,
                     ),
-                    Row(
-                      children: [
-                        IconButton(
-                          tooltip: 'Select visible',
-                          onPressed: () =>
-                              setState(() => _selected.addAll(visible)),
-                          icon: const Icon(Icons.select_all),
-                        ),
-                        IconButton(
-                          tooltip: 'Clear selection',
-                          onPressed: () => setState(_selected.clear),
-                          icon: const Icon(Icons.deselect),
-                        ),
-                        Expanded(
-                          child: DropdownButton<String>(
-                            key: const ValueKey('statement-bulk-type'),
-                            isExpanded: true,
-                            hint: Text('Set type (${_selected.length})'),
-                            items: ExpenseType.values
-                                .map(
-                                  (t) => DropdownMenuItem(
-                                    value: t.sheetValue,
-                                    child: Text(
-                                      t.sheetValue,
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                  ),
-                                )
-                                .toList(),
-                            onChanged: _selected.isEmpty
-                                ? null
-                                : (value) {
-                                    if (value != null) {
-                                      setState(() {
-                                        for (final i in _selected) {
-                                          _rows[i] = _rows[i].withExpenseType(
-                                            value,
-                                          );
-                                        }
-                                        _selected.clear();
-                                      });
-                                    }
-                                  },
-                          ),
-                        ),
-                      ],
+                    label: Text(
+                      _editClassifications
+                          ? 'Hide classification edits'
+                          : 'Edit individual classifications (optional)',
                     ),
-                  ],
+                  ),
                 ),
               ),
+              if (_editClassifications &&
+                  (!isNarrow || screenSize.height >= 740))
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  child: Column(
+                    children: [
+                      Row(
+                        children: [
+                          FilterChip(
+                            label: Text('Unknown (${unknown.length})'),
+                            selected: _unknownOnly,
+                            onSelected: (v) => setState(() => _unknownOnly = v),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              '${widget.currencySymbol}${unknown.fold<double>(0, (sum, r) => sum + r.amount).toStringAsFixed(2)} needs review',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                      Row(
+                        children: [
+                          IconButton(
+                            tooltip: 'Select visible',
+                            onPressed: () =>
+                                setState(() => _selected.addAll(visible)),
+                            icon: const Icon(Icons.select_all),
+                          ),
+                          IconButton(
+                            tooltip: 'Clear selection',
+                            onPressed: () => setState(_selected.clear),
+                            icon: const Icon(Icons.deselect),
+                          ),
+                          Expanded(
+                            child: DropdownButton<String>(
+                              key: const ValueKey('statement-bulk-type'),
+                              isExpanded: true,
+                              hint: Text('Set type (${_selected.length})'),
+                              items: ExpenseType.values
+                                  .map(
+                                    (t) => DropdownMenuItem(
+                                      value: t.sheetValue,
+                                      child: Text(
+                                        t.sheetValue,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                  )
+                                  .toList(),
+                              onChanged: _selected.isEmpty
+                                  ? null
+                                  : (value) {
+                                      if (value != null) {
+                                        setState(() {
+                                          for (final i in _selected) {
+                                            _rows[i] = _rows[i].withExpenseType(
+                                              value,
+                                            );
+                                          }
+                                          _selected.clear();
+                                        });
+                                      }
+                                    },
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
               const SizedBox(height: 8),
               const Divider(height: 1),
               Expanded(
-                child: isNarrow
+                child: !_editClassifications
+                    ? ListView.separated(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        itemCount: visible.length,
+                        separatorBuilder: (_, _) => const Divider(height: 1),
+                        itemBuilder: (_, i) =>
+                            _buildConfirmRow(visible[i], theme),
+                      )
+                    : isNarrow
                     ? ListView.separated(
                         padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
                         itemCount: visible.length,
@@ -341,10 +373,58 @@ class _StatementReviewDialogState extends State<StatementReviewDialog> {
               Navigator.of(context)
                   .pop(_rows.where((row) => row.willImport).toList()),
     icon: const Icon(Icons.upload_file_outlined),
-    label: Text(
-      widget.emailReview ? 'Approve & add to Sheets' : 'Save & Import',
-    ),
+    label: Text('Confirm & Import'),
   );
+
+  Widget _buildConfirmRow(int index, ThemeData theme) {
+    final row = _rows[index];
+    return ListTile(
+      key: ValueKey('statement-review-row-$index'),
+      contentPadding: EdgeInsets.zero,
+      title: Text(
+        row.description,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+      ),
+      subtitle: Text(
+        '${row.date}${row.duplicate ? ' · Already recorded' : ''}',
+      ),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            '${widget.currencySymbol}${row.amount.toStringAsFixed(2)}',
+            style: theme.textTheme.titleSmall,
+          ),
+          if (row.duplicate)
+            Checkbox(
+              key: ValueKey('statement-review-import-anyway-$index'),
+              value: row.importAnyway,
+              onChanged: (value) => setState(
+                () => _rows[index] = row.withImportAnyway(value ?? false),
+              ),
+            ),
+        ],
+      ),
+      onTap: row.duplicate
+          ? () => showDialog<void>(
+              context: context,
+              builder: (c) => AlertDialog(
+                title: const Text('Already recorded'),
+                content: const Text(
+                  'This transaction matches an expense in your sheet. Leave it unchecked to skip it. Check the box only to import another copy.',
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(c),
+                    child: const Text('Done'),
+                  ),
+                ],
+              ),
+            )
+          : null,
+    );
+  }
 
   Widget _buildMobileRow(int index, ThemeData theme) {
     final row = _rows[index];

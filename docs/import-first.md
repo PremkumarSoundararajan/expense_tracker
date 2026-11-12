@@ -1,0 +1,15 @@
+# Import first, classify later
+
+Statement confirmation shows dates, descriptions, amounts and duplicate status by default. No classification is required. Optional individual category/type edits and existing duplicate safeguards remain available. Unedited duplicate rows are skipped even if an inherited merchant category differs. Successful imports offer Classify merchants, opening Financial Baseline's remaining merchant view. Individual transaction overrides remain higher priority than merchant choices.
+
+The existing API already reuses saved merchant categories and expense types for future imports. Essentiality is inherited from the saved merchant rule when transactions are loaded. No new Gmail code or scope is involved.
+
+Bulk exclusion now saves an account-scoped small-merchant policy and the chosen threshold in Merchant Classifications. On full committed-ledger synchronization after import/refresh, unclassified merchants with total spending strictly below the chosen amount receive NA defaults. New merchants are eligible too. At or above the threshold, existing exclusions become Uncategorized / Unknown / Unclassified and return to review. Whole-ledger totals use the same grouping/deduplication/refund handling as Financial Baseline, not the current statement alone. This does not rewrite amounts or dates. Explicit transaction exceptions and fully classified merchants are preserved.
+
+Once a merchant crosses the threshold it stays in review until the user acts, even if later spending/refunds reduce its total. Remove NA opts that merchant out of future automatic exclusion. Changing the saved limit updates still-excluded merchants; it does not overwrite confirmed classifications. Policies are evaluated only against a full ledger, never a filtered preview or incomplete cache.
+
+Earlier NA records did not persist their original limit. That value cannot be recovered safely: users must save their chosen limit once in Bulk Exclude Small Merchants to adopt older exclusions into automatic checking. No amount is silently guessed.
+
+If Sheets synchronization fails, the import remains saved and classification synchronization retries on refresh. Rules are applied after committed imports, so cancellation, rejected imports and duplicate reimports never count toward the threshold.
+
+Bulk-exclusion UI: the action is collapsed by default. Opening it shows only Exclude all merchants <, the amount input and Exclude. Validation errors and the existing >25% transaction-impact warning appear only when applicable. A successful save shows a brief confirmation with the chosen amount; routine preview paragraphs are omitted.

@@ -53,6 +53,11 @@ void main() {
       );
       await tester.tap(find.text('Open'));
       await tester.pumpAndSettle();
+      expect(find.byType(DropdownButton<String>), findsNothing);
+      await tester.tap(
+        find.byKey(const ValueKey('statement-edit-classifications')),
+      );
+      await tester.pumpAndSettle();
       final row = find.byKey(const ValueKey('statement-review-row-0'));
       final category = find.byKey(
         const ValueKey('statement-review-category-0-Lifestyle / Misc'),

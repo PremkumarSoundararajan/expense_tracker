@@ -5,6 +5,7 @@ import 'package:googleapis/sheets/v4.dart' as sheets;
 
 import '../models/transaction.dart';
 import 'merchant_classification_service.dart';
+import 'merchant_na_service.dart';
 
 /// Account-local durable outbox; sheet records are merged by stable record ID.
 class MerchantClassificationStore {
@@ -198,8 +199,17 @@ class MerchantClassificationStore {
       remote.values,
     ); // Validate before replacing the local cache.
     // Unrelated remote records survive; only locally edited record IDs win.
-    final sent = {for (final id in pending) id: jsonEncode(records[id])};
     final merged = {...remote, for (final id in pending) id: records[id]!};
+    for (final change in reconcileMerchantNaPolicy(
+      merged.values,
+      rawTransactions,
+    )) {
+      final id = change['id'] as String;
+      records[id] = change;
+      merged[id] = change;
+      pending.add(id);
+    }
+    final sent = {for (final id in pending) id: jsonEncode(records[id])};
     var next = rows.length + 1;
     final updates = <sheets.ValueRange>[];
     for (final id in sent.keys) {
