@@ -1,3 +1,5 @@
+import 'support/baseline_navigation.dart';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -114,6 +116,7 @@ void main() {
         await tester.pumpAndSettle();
         await tester.tap(classified);
         await tester.pumpAndSettle();
+        await openClassifiedTable(tester);
         final expand = find.byKey(const ValueKey('merchant-expand-market'));
         await tester.ensureVisible(expand);
         await tester.pumpAndSettle();

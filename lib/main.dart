@@ -46,7 +46,7 @@ import 'widgets/financial_baseline_screen.dart';
 import 'widgets/favourite_spending_spots_widget.dart';
 import 'widgets/pocket_ledger_web_access.dart';
 import 'widgets/feedback_dialog.dart';
-import 'widgets/email_retirement_notice.dart';
+import 'widgets/help_screen.dart';
 import 'widgets/monthly_budget_card.dart';
 import 'widgets/monthly_budget_target_dialog.dart';
 import 'widgets/spending_summary_widget.dart';
@@ -1702,62 +1702,6 @@ class _DashboardScreenState extends State<DashboardScreen>
     if (mounted) setState(() => _workerSpreadsheetId = spreadsheetId);
   }
 
-  Future<void> _syncCsvToWorker() async {
-    if (_isWorkerSyncing) return;
-
-    if (!mounted) return;
-    if (_transactions.isEmpty) {
-      _showMessage('There are no expenses to sync yet.');
-      return;
-    }
-
-    setState(() {
-      _isWorkerSyncing = true;
-      _workerSyncStatus = 'Syncing expenses...';
-    });
-    try {
-      final spreadsheetId = await _getTargetSpreadsheetId();
-      if (!mounted) return;
-      final hasPermission = await _drivePermissionService
-          .ensureDriveWritePermission(context);
-      if (!hasPermission) return;
-
-      final authentication = await widget.account.authentication;
-      final accessToken = authentication.accessToken;
-      if (accessToken == null || accessToken.trim().isEmpty) {
-        throw StateError(
-          'Google did not provide an access token. Reconnect Google Drive '
-          'and try again.',
-        );
-      }
-
-      final response = await _workerCsvSyncService.syncCsv(
-        accessToken: accessToken,
-        spreadsheetId: spreadsheetId,
-        csv: buildExpenseCsv(_transactions),
-        categoryConfig: _categoryConfiguration,
-      );
-      final result = jsonDecode(response.body) as Map<String, dynamic>;
-      final spreadsheetCreated = result['spreadsheetCreated'] == true;
-      await _rememberWorkerSpreadsheetId(
-        result['spreadsheetId']?.toString() ?? spreadsheetId,
-      );
-      _showMessage(
-        'Synced ${_transactions.length} expense(s) to Google Sheets.'
-        '${spreadsheetCreated ? ' A replacement spreadsheet was created.' : ''}',
-      );
-    } catch (error) {
-      _showMessage('Could not sync CSV to Cloudflare: $error');
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isWorkerSyncing = false;
-          _workerSyncStatus = null;
-        });
-      }
-    }
-  }
-
   Future<void> _classifyImportedMerchants(String spreadsheetId) async {
     if (spreadsheetId == _spreadsheetId) {
       setState(() {
@@ -2668,11 +2612,19 @@ class _DashboardScreenState extends State<DashboardScreen>
     String filter,
     List<Transaction> transactions,
   ) {
-    final totals = <String, double>{};
+    final categoryGroups = <String, List<Transaction>>{};
     for (final transaction in transactions) {
-      totals[transaction.category] =
-          (totals[transaction.category] ?? 0) + transaction.amount;
+      categoryGroups
+          .putIfAbsent(transaction.category, () => [])
+          .add(transaction);
     }
+    final totals = {
+      for (final entry in categoryGroups.entries)
+        entry.key: entry.value.fold<double>(
+          0,
+          (sum, transaction) => sum + transaction.amount,
+        ),
+    };
     final sortedEntries = totals.entries.toList()
       ..sort((a, b) => b.value.compareTo(a.value));
     final maxVal = sortedEntries.isEmpty ? 1.0 : sortedEntries.first.value;
@@ -2746,7 +2698,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                             title,
                             filter,
                             entry.key,
-                            transactions,
+                            categoryGroups[entry.key]!,
                           ),
                         );
                       }).toList(),
@@ -2766,11 +2718,11 @@ class _DashboardScreenState extends State<DashboardScreen>
     String category,
     List<Transaction> transactions,
   ) {
-    final categoryTransactions =
-        transactions
-            .where((transaction) => transaction.category == category)
-            .toList()
-          ..sort((a, b) => b.date.compareTo(a.date));
+    // Callers pass the exact bucket behind the selected bar. Parent buckets
+    // can contain several subcategories, so filtering by the display label
+    // here would discard their transactions.
+    final categoryTransactions = transactions.toList()
+      ..sort((a, b) => b.date.compareTo(a.date));
     final sheetTheme = ThemeData(
       useMaterial3: true,
       colorScheme: ColorScheme.fromSeed(
@@ -2957,7 +2909,6 @@ class _DashboardScreenState extends State<DashboardScreen>
     final dashboardWidgets = _selectedTab != 0
         ? <Widget>[]
         : <Widget>[
-            const EmailRetirementBanner(),
             if (_needsDriveAccess)
               _DriveAccessBanner(onConnect: _connectGoogleDrive)
             else if (_isInitialSync && _transactions.isEmpty) ...[
@@ -3485,11 +3436,11 @@ class _DashboardScreenState extends State<DashboardScreen>
             builder: (context, constraints) {
               final columns = constraints.maxWidth >= 650 ? 5 : 3;
               final itemWidth =
-                  (constraints.maxWidth - (columns - 1) * 8) / columns;
+                  (constraints.maxWidth - (columns - 1) * 12) / columns;
               return Wrap(
                 key: const ValueKey('insight-shortcuts'),
-                spacing: 8,
-                runSpacing: 8,
+                spacing: 12,
+                runSpacing: 12,
                 children: [
                   for (final shortcut in shortcuts)
                     SizedBox(
@@ -3530,7 +3481,7 @@ class _DashboardScreenState extends State<DashboardScreen>
               );
             },
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 24),
           _merchantPanel(),
         ]);
         break;
@@ -3566,12 +3517,11 @@ class _DashboardScreenState extends State<DashboardScreen>
                 ),
                 const Divider(height: 1),
                 ListTile(
-                  leading: const Icon(Icons.privacy_tip_outlined),
-                  title: const Text('Privacy update'),
-                  subtitle: const Text('Email scanning has been removed'),
-                  onTap: () => showDialog<void>(
-                    context: context,
-                    builder: (_) => const EmailRetirementNotice(),
+                  leading: const Icon(Icons.help_outline),
+                  title: const Text('Help & how it works'),
+                  subtitle: const Text('Getting started, budgets and insights'),
+                  onTap: () => Navigator.of(context).push<void>(
+                    MaterialPageRoute(builder: (_) => const HelpScreen()),
                   ),
                 ),
                 if (!kIsWeb) ...[
@@ -3583,14 +3533,6 @@ class _DashboardScreenState extends State<DashboardScreen>
                     title: const Text('Daily reminder'),
                     subtitle: Text(_dailyReminderEnabled ? 'On' : 'Off'),
                     onTap: _showDailyReminderSettings,
-                  ),
-                ],
-                if (kIsWeb) ...[
-                  const Divider(height: 1),
-                  ListTile(
-                    leading: const Icon(Icons.cloud_upload_outlined),
-                    title: const Text('Sync expenses to Cloudflare'),
-                    onTap: _isWorkerSyncing ? null : _syncCsvToWorker,
                   ),
                 ],
                 const Divider(height: 1),
@@ -3616,6 +3558,19 @@ class _DashboardScreenState extends State<DashboardScreen>
     const tabTitles = ['Pocket Ledger', 'Expenses', 'Insights', 'Settings'];
     return Scaffold(
       appBar: AppBar(
+        actions: [
+          IconButton(
+            tooltip: _selectedTab == 2
+                ? 'Insights help'
+                : 'Help & how it works',
+            icon: const Icon(Icons.help_outline),
+            onPressed: () => Navigator.of(context).push<void>(
+              MaterialPageRoute(
+                builder: (_) => HelpScreen(insightsOnly: _selectedTab == 2),
+              ),
+            ),
+          ),
+        ],
         title: _selectedTab == 0
             ? Row(
                 children: [

@@ -12,6 +12,8 @@ import '../services/merchant_classification_store.dart';
 import '../services/merchant_na_service.dart';
 import '../utils/currency_format.dart';
 import 'pocket_ledger_web_access.dart';
+import 'spending_breakdown.dart';
+import '../services/classified_spending_breakdown_service.dart';
 
 List<FavouriteSpendingSpot> merchantsForCoverage(
   List<FavouriteSpendingSpot> groups,
@@ -65,6 +67,30 @@ class _MerchantBaselinePanelState extends State<MerchantBaselinePanel> {
   final _naKeys = <String>{};
   final _naThreshold = TextEditingController();
   bool _showNaControls = false;
+  bool _classifiedTable = false;
+  ClassifiedSpendingBreakdown? _breakdownCache;
+  MerchantClassificationIndex? _breakdownIndex;
+  List<FavouriteSpendingSpot>? _breakdownGroups;
+  List<ExpenseCategory>? _breakdownCategories;
+  ClassifiedSpendingBreakdown get _breakdown {
+    final index = _index;
+    if (_breakdownCache == null ||
+        !identical(_breakdownIndex, index) ||
+        !identical(_breakdownGroups, _groups) ||
+        !identical(_breakdownCategories, widget.categories)) {
+      _breakdownCache = const ClassifiedSpendingBreakdownService().build(
+        groups: _groups,
+        index: index,
+        categories: widget.categories,
+        legacyGroups: _legacy,
+      );
+      _breakdownIndex = index;
+      _breakdownGroups = _groups;
+      _breakdownCategories = widget.categories;
+    }
+    return _breakdownCache!;
+  }
+
   String? _naError;
   bool _filtersOpen = false;
   String? _filterCategory;
@@ -104,6 +130,7 @@ class _MerchantBaselinePanelState extends State<MerchantBaselinePanel> {
           onPressed: () => setState(() {
             if (_view != view) _query = '';
             _view = view;
+            if (view == 'classified') _classifiedTable = false;
             _reviewCoverage = false;
             if (view == 'remaining') _selection = 'All';
           }),
@@ -459,38 +486,53 @@ class _MerchantBaselinePanelState extends State<MerchantBaselinePanel> {
         if (_showNaControls) ...[
           const SizedBox(height: 8),
           LayoutBuilder(
-            builder: (context, constraints) => Row(
-              children: [
-                const Flexible(child: Text('Exclude all merchants <')),
-                const SizedBox(width: 8),
-                SizedBox(
-                  width: constraints.maxWidth > 500
-                      ? 160
-                      : (constraints.maxWidth * .28).clamp(70, 120).toDouble(),
-                  child: TextField(
-                    key: const ValueKey('na-threshold'),
-                    controller: _naThreshold,
-                    enabled: !_saving,
-                    keyboardType: const TextInputType.numberWithOptions(
-                      decimal: true,
-                    ),
-                    decoration: InputDecoration(
-                      prefixText: widget.currencySymbol,
-                      hintText: 'Amount',
-                      isDense: true,
-                      border: const OutlineInputBorder(),
-                    ),
-                    onChanged: (_) => setState(() => _naError = null),
-                  ),
+            builder: (context, constraints) {
+              final amount = TextField(
+                key: const ValueKey('na-threshold'),
+                controller: _naThreshold,
+                enabled: !_saving,
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
                 ),
-                const SizedBox(width: 8),
-                FilledButton(
-                  key: const ValueKey('save-na-threshold'),
-                  onPressed: _saving ? null : _applyNa,
-                  child: const Text('Exclude'),
+                decoration: InputDecoration(
+                  prefixText: widget.currencySymbol,
+                  hintText: 'Amount',
+                  isDense: true,
+                  border: const OutlineInputBorder(),
                 ),
-              ],
-            ),
+                onChanged: (_) => setState(() => _naError = null),
+              );
+              final exclude = FilledButton(
+                key: const ValueKey('save-na-threshold'),
+                onPressed: _saving ? null : _applyNa,
+                child: const Text('Exclude'),
+              );
+              if (constraints.maxWidth < 500) {
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Exclude all merchants <'),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Expanded(child: amount),
+                        const SizedBox(width: 12),
+                        exclude,
+                      ],
+                    ),
+                  ],
+                );
+              }
+              return Row(
+                children: [
+                  const Text('Exclude all merchants <'),
+                  const SizedBox(width: 12),
+                  SizedBox(width: 160, child: amount),
+                  const SizedBox(width: 12),
+                  exclude,
+                ],
+              );
+            },
           ),
           if (_naError != null)
             Text(
@@ -1342,8 +1384,9 @@ class _MerchantBaselinePanelState extends State<MerchantBaselinePanel> {
         ? 0.0
         : (reviewed / total * 100).clamp(0.0, 100.0);
     final coverageSummary =
-        '${classifiedPercent.toStringAsFixed(1)}% classified · ${(total <= 0 ? 0.0 : remainingAmount / total * 100).toStringAsFixed(1)}% unclassified${naGroups.isEmpty ? '' : ' · ' + (total <= 0 ? 0.0 : naAmount / total * 100).toStringAsFixed(1) + '% NA'}';
-    final showReview = _view != 'overview';
+        '${classifiedPercent.toStringAsFixed(1)}% classified · ${(total <= 0 ? 0.0 : remainingAmount / total * 100).toStringAsFixed(1)}% unclassified${naGroups.isEmpty || _view == 'classified' ? '' : ' · ' + (total <= 0 ? 0.0 : naAmount / total * 100).toStringAsFixed(1) + '% NA'}';
+    final showChart = _view == 'classified' && !_classifiedTable;
+    final showReview = _view != 'overview' && !showChart;
     final showNaAction = _view == 'remaining' || _view == 'focus';
     final showTable = showReview && source.isNotEmpty;
     return LayoutBuilder(
@@ -1351,16 +1394,17 @@ class _MerchantBaselinePanelState extends State<MerchantBaselinePanel> {
         final panel = SizedBox(
           height: showTable
               ? ((showNaAction && _showNaControls) ||
-                            (_view == 'classified' && _filtersOpen)
-                        ? MediaQuery.sizeOf(context).height * 1.2
-                        : (MediaQuery.sizeOf(context).width < 600
-                              ? MediaQuery.sizeOf(context).height * 1.15
-                              : MediaQuery.sizeOf(context).height * .78))
-                    .clamp(620.0, 1100.0)
+                                (_view == 'classified' && _filtersOpen)
+                            ? MediaQuery.sizeOf(context).height * 1.2
+                            : (MediaQuery.sizeOf(context).width < 600
+                                  ? MediaQuery.sizeOf(context).height * 1.15
+                                  : MediaQuery.sizeOf(context).height * .78))
+                        .clamp(620.0, 1100.0) +
+                    (showNaAction ? 100 : 0)
               : null,
           child: Card(
             child: Padding(
-              padding: const EdgeInsets.all(12),
+              padding: const EdgeInsets.all(16),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -1385,7 +1429,7 @@ class _MerchantBaselinePanelState extends State<MerchantBaselinePanel> {
                       ),
                     ],
                   ),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 16),
                   if (!widget.historyComplete)
                     const Text('Showing saved history while syncing.'),
                   Row(
@@ -1407,8 +1451,12 @@ class _MerchantBaselinePanelState extends State<MerchantBaselinePanel> {
                       ),
                     ],
                   ),
-                  const SizedBox(height: 8),
-                  if (naGroups.isNotEmpty)
+                  const SizedBox(height: 20),
+                  LinearProgressIndicator(
+                    value: total == 0 ? 0 : (reviewed / total).clamp(0, 1),
+                  ),
+                  const SizedBox(height: 20),
+                  if (naGroups.isNotEmpty && _view != 'classified')
                     TextButton(
                       key: const ValueKey('review-na'),
                       onPressed: () => setState(() {
@@ -1424,7 +1472,22 @@ class _MerchantBaselinePanelState extends State<MerchantBaselinePanel> {
                             '% of spending',
                       ),
                     ),
-                  if (showNaAction) _naControls(),
+                  if (showNaAction)
+                    Container(
+                      key: const ValueKey('bulk-exclusion-box'),
+                      margin: const EdgeInsets.only(top: 12, bottom: 24),
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: Theme.of(context)
+                            .colorScheme
+                            .surfaceContainerLow,
+                        border: Border.all(
+                          color: Theme.of(context).colorScheme.outlineVariant,
+                        ),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: _naControls(),
+                    ),
                   if (_view == 'remaining' || _view == 'focus')
                     SingleChildScrollView(
                       scrollDirection: Axis.horizontal,
@@ -1462,9 +1525,38 @@ class _MerchantBaselinePanelState extends State<MerchantBaselinePanel> {
                     Text(
                       'Top 80% done. You can stop here, or choose Unclassified above.',
                     ),
-                  LinearProgressIndicator(
-                    value: total == 0 ? 0 : (reviewed / total).clamp(0, 1),
-                  ),
+                  if (_view == 'classified')
+                    Offstage(
+                      offstage: !showChart,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          if (_changed.isNotEmpty)
+                            const Padding(
+                              padding: EdgeInsets.only(bottom: 12),
+                              child: Text('Preview includes unsaved choices.'),
+                            ),
+                          SpendingBreakdown(
+                            data: _breakdown,
+                            currencySymbol: widget.currencySymbol,
+                            onReviewMerchants: () =>
+                                setState(() => _classifiedTable = true),
+                          ),
+                        ],
+                      ),
+                    ),
+                  if (_view == 'classified' && _classifiedTable)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 16),
+                      child: TextButton.icon(
+                        key: const ValueKey('baseline-back-to-chart'),
+                        onPressed: () =>
+                            setState(() => _classifiedTable = false),
+                        icon: const Icon(Icons.arrow_back),
+                        label: const Text('Back to charts'),
+                      ),
+                    ),
+                  if (showReview) const SizedBox(height: 16),
                   if (showTable) ...[
                     if (_view == 'classified' && _filtersOpen) _reviewFilters(),
                     if (_view == 'classified' && _filterCount > 0)
@@ -1627,7 +1719,7 @@ class _MerchantBaselinePanelState extends State<MerchantBaselinePanel> {
               hasUnsavedChanges: _changed.isNotEmpty,
             ),
             if (panelConstraints.hasBoundedHeight)
-              Expanded(child: panel)
+              Expanded(child: SingleChildScrollView(child: panel))
             else
               panel,
           ],

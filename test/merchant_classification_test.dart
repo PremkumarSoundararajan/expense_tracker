@@ -1,3 +1,5 @@
+import 'support/baseline_navigation.dart';
+
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -346,15 +348,18 @@ void main() {
       );
       await tester.tap(find.byKey(const ValueKey('baseline-classified')));
       await tester.pumpAndSettle();
+      await openClassifiedTable(tester);
       final category = find.byWidgetPredicate(
         (w) =>
             w is DropdownButton<String> &&
             w.key.toString().contains('merchant-category-'),
       );
+      await tester.ensureVisible(category);
       await tester.tap(category);
       await tester.pumpAndSettle();
       await tester.tap(find.text('Shopping').last);
       await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('Save changes'));
       await tester.tap(find.text('Save changes'));
       await tester.pumpAndSettle();
       expect(
@@ -378,6 +383,7 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text('Apply to all'));
       await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('Save changes'));
       await tester.tap(find.text('Save changes'));
       await tester.pumpAndSettle();
       expect(store.index.apply(transaction()).baselineGroup, 'Essential');
@@ -412,6 +418,7 @@ void main() {
           w is DropdownButton<String> &&
           w.key.toString().contains('merchant-category-'),
     );
+    await tester.ensureVisible(category);
     await tester.tap(category);
     await tester.pumpAndSettle();
     await tester.tap(find.text('Food').last);
@@ -424,6 +431,7 @@ void main() {
     await tester.pumpWidget(panel(restored));
     await tester.pumpAndSettle();
     expect(find.textContaining('1 unsaved changes'), findsOneWidget);
+    await tester.ensureVisible(find.text('Discard'));
     await tester.tap(find.text('Discard'));
     await tester.pumpAndSettle();
     expect(restored.draft, isEmpty);
@@ -658,6 +666,7 @@ void main() {
         expect(find.text('80%'), findsOneWidget);
         await tester.tap(find.byKey(const ValueKey('baseline-classified')));
         await tester.pumpAndSettle();
+        await openClassifiedTable(tester);
         final expand = find.byTooltip('View transactions').first;
         await tester.tap(expand);
         await tester.pumpAndSettle();
@@ -681,6 +690,7 @@ void main() {
         await tester.pumpAndSettle();
         await tester.tap(find.text('Shopping').last);
         await tester.pumpAndSettle();
+        await tester.ensureVisible(find.text('Save changes'));
         await tester.tap(find.text('Save changes'));
         await tester.pumpAndSettle();
         expect(saved!.single['transactionId'], 'tx');

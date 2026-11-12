@@ -1,3 +1,5 @@
+import 'support/baseline_navigation.dart';
+
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -108,6 +110,7 @@ void main() {
         expect(store.index.apply(rows.single).expenseType, ExpenseType.regular);
         await tester.tap(find.byKey(const ValueKey('baseline-classified')));
         await tester.pumpAndSettle();
+        await openClassifiedTable(tester);
         expect(find.text('Alpha · 1'), findsOneWidget);
         expect(find.text('Ready to save'), findsNothing);
         expect(tester.takeException(), isNull);

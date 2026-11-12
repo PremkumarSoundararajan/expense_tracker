@@ -1,3 +1,5 @@
+import 'support/baseline_navigation.dart';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -118,6 +120,7 @@ void main() {
         await tester.pumpAndSettle();
         await tester.tap(find.byKey(const ValueKey('baseline-classified')));
         await tester.pumpAndSettle();
+        await openClassifiedTable(tester);
         expect(find.byKey(const ValueKey('na-threshold-toggle')), findsNothing);
         await tester.tap(find.byKey(const ValueKey('baseline-filter-toggle')));
         await tester.pumpAndSettle();

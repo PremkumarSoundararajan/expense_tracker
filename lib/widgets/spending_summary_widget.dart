@@ -470,11 +470,9 @@ class SpendingSummaryWidget extends StatefulWidget {
 }
 
 class _SpendingSummaryWidgetState extends State<SpendingSummaryWidget> {
-  static const _enabledKey = 'periodic_summaries_enabled';
   static const _frequencyKey = 'periodic_summaries_frequency';
   static const _recentHistoryKey = 'periodic_summaries_recent_history';
 
-  bool _isEnabled = false;
   bool _showRecentHistory = false;
   bool _isLoadingPreferences = true;
   SummaryFrequency _frequency = SummaryFrequency.monthly;
@@ -492,7 +490,6 @@ class _SpendingSummaryWidgetState extends State<SpendingSummaryWidget> {
       final savedFrequency = preferences.getString(_frequencyKey);
       if (!mounted) return;
       setState(() {
-        _isEnabled = preferences.getBool(_enabledKey) ?? false;
         _showRecentHistory = preferences.getBool(_recentHistoryKey) ?? false;
         _frequency = SummaryFrequency.values.firstWhere(
           (value) => value.name == savedFrequency,
@@ -520,12 +517,6 @@ class _SpendingSummaryWidgetState extends State<SpendingSummaryWidget> {
     } catch (error) {
       if (mounted) _showPreferenceError(error);
       return false;
-    }
-  }
-
-  Future<void> _setEnabled(bool enabled) async {
-    if (await _savePreference(_enabledKey, enabled) && mounted) {
-      setState(() => _isEnabled = enabled);
     }
   }
 
@@ -592,12 +583,10 @@ class _SpendingSummaryWidgetState extends State<SpendingSummaryWidget> {
                     width: 20,
                     height: 20,
                     child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                else
-                  Switch(value: _isEnabled, onChanged: _setEnabled),
+                  ),
               ],
             ),
-            if (_isEnabled) ...[
+            ...[
               const SizedBox(height: 8),
               DropdownButtonFormField<SummaryFrequency>(
                 initialValue: _frequency,
@@ -702,8 +691,6 @@ class _SpendingSummaryWidgetState extends State<SpendingSummaryWidget> {
                     ),
                   ),
               ],
-            ] else ...[
-              const Text('Turn on summaries to view your spending averages.'),
             ],
           ],
         ),

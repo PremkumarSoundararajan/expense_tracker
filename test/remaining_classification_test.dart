@@ -1,3 +1,5 @@
+import 'support/baseline_navigation.dart';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -110,6 +112,7 @@ void main() {
       );
       await tester.tap(find.byKey(const ValueKey('baseline-classified')));
       await tester.pumpAndSettle();
+      await openClassifiedTable(tester);
       expect(find.text('Alpha · 1'), findsOneWidget);
       expect(find.text('Beta · 1'), findsNothing);
       expect(tester.takeException(), isNull);
@@ -185,7 +188,9 @@ void main() {
       };
       await tester.pumpWidget(MaterialApp(home: Scaffold(body: child)));
       await tester.pumpAndSettle();
-      final reviewLink = surface == 'monthly' ? find.textContaining('unclassified · Review') : find.text('Classify remaining expenses');
+      final reviewLink = surface == 'monthly'
+          ? find.textContaining('unclassified · Review')
+          : find.text('Classify remaining expenses');
       await tester.ensureVisible(reviewLink);
       await tester.tap(reviewLink);
       expect(opened, true);

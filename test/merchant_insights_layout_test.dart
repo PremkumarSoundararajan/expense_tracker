@@ -171,7 +171,7 @@ void main() {
         expect(find.byType(TextField), findsNothing);
         expect(
           tester.getSize(find.byType(MerchantBaselinePanel)).height,
-          lessThan(350),
+          lessThan(440),
         );
         expect(find.text('Merchant'), findsNothing);
         // Only the app bar and bottom navigation carry the Insights label.
