@@ -152,7 +152,11 @@ void main() {
   test('excludes internal transfers from favourite spending spots', () {
     final result = service.calculate(
       transactions: [
-        _transaction(description: 'FID BKG SVC LLC DES:MONEYLINE', amount: 800),
+        _transaction(
+          description: 'FID BKG SVC LLC DES:MONEYLINE',
+          amount: 800,
+          category: 'Transfers',
+        ),
         _transaction(description: 'Local Cafe', amount: 40),
       ],
       now: now,
@@ -202,7 +206,10 @@ void main() {
   test('ranks by net total and applies the top five limit at presentation', () {
     final transactions = [
       for (var index = 1; index <= 7; index++)
-        _transaction(description: 'Merchant $index', amount: index * 10),
+        _transaction(
+          description: 'Merchant ${String.fromCharCode(64 + index)}',
+          amount: index * 10,
+        ),
     ];
     final result = service.calculate(transactions: transactions, now: now);
 

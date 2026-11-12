@@ -1,4 +1,3 @@
-
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -64,6 +63,7 @@ void main() {
         date: DateTime(2026, 10, 28, 8),
         amount: 10,
         category: 'Food / Household',
+        expenseType: ExpenseType.regular,
       ),
       Transaction(
         date: DateTime(2026, 10, 28, 21),
@@ -75,6 +75,7 @@ void main() {
         date: DateTime(2026, 10, 27, 23, 59),
         amount: 30,
         category: 'Housing / Bills',
+        expenseType: ExpenseType.regular,
       ),
     ];
 
@@ -107,7 +108,7 @@ void main() {
   );
 
   group('Transaction expense classification', () {
-    test('legacy sheet rows default to regular and retain their fields', () {
+    test('legacy sheet rows default to unknown and retain their fields', () {
       final transaction = Transaction.tryParseSheetRow([
         '2025-06-03T08:30:00',
         '42.50',
@@ -116,7 +117,7 @@ void main() {
       ]);
 
       expect(transaction, isNotNull);
-      expect(transaction!.expenseType, ExpenseType.regular);
+      expect(transaction!.expenseType, ExpenseType.unknown);
       expect(transaction.category, 'Food / Household');
       expect(transaction.amount, 42.5);
       expect(transaction.id, isNull);
@@ -145,7 +146,7 @@ void main() {
       ]);
 
       expect(transaction?.date, DateTime(2025, 6, 3, 20, 30));
-      expect(transaction?.expenseType, ExpenseType.regular);
+      expect(transaction?.expenseType, ExpenseType.unknown);
     });
 
     test('serializes dates without time and parses legacy datetime JSON', () {
@@ -182,6 +183,7 @@ void main() {
           date: DateTime(2025, 1, 1),
           amount: 4500,
           category: 'Housing / Bills',
+          expenseType: ExpenseType.regular,
         ),
         Transaction(
           date: DateTime(2025, 1, 2),
@@ -193,6 +195,7 @@ void main() {
           date: DateTime(2025, 2, 1),
           amount: 4500,
           category: 'Housing / Bills',
+          expenseType: ExpenseType.regular,
         ),
         Transaction(
           date: DateTime(2025, 2, 2),
@@ -204,6 +207,7 @@ void main() {
           date: DateTime(2025, 3, 10),
           amount: 4500,
           category: 'Housing / Bills',
+          expenseType: ExpenseType.regular,
         ),
         Transaction(
           date: DateTime(2025, 3, 11),
@@ -229,11 +233,13 @@ void main() {
           date: DateTime(2025, 6, 1),
           amount: 100,
           category: 'Health & Wellness',
+          expenseType: ExpenseType.regular,
         ),
         Transaction(
           date: DateTime(2025, 7, 1),
           amount: 100,
           category: 'Health & Wellness',
+          expenseType: ExpenseType.regular,
         ),
       ],
       category: 'Health & Wellness',
@@ -250,13 +256,14 @@ void main() {
     expect(insight, contains('Occasional outflows account for 400.00'));
   });
 
-  test('rollover budget comparison excludes occasional expenses', () {
+  test('rollover budget comparison includes planned and excludes unexpected expenses', () {
     final recap = MonthlyRolloverRecap.calculate(
       transactions: [
         Transaction(
           date: DateTime(2025, 5, 10),
           amount: 4500,
           category: 'Housing / Bills',
+          expenseType: ExpenseType.regular,
         ),
         Transaction(
           date: DateTime(2025, 5, 11),
@@ -278,14 +285,14 @@ void main() {
     expect(recap, isNotNull);
     expect(recap!.previousMonthSpend, 14000);
     expect(recap.regularSpend, 4500);
-    expect(recap.difference, 1500);
-    expect(recap.stayedUnderBudget, isTrue);
+    expect(recap.difference, 6500);
+    expect(recap.stayedUnderBudget, isFalse);
     expect(recap.previousMonthPlannedOccasionalSpend, 8000);
     expect(recap.previousMonthUnexpectedOccasionalSpend, 1500);
   });
 
   testWidgets(
-    'monthly dashboard keeps actual spend and regular budget separate',
+    'monthly dashboard compares regular plus planned and keeps unexpected separate',
     (tester) async {
       await tester.pumpWidget(
         MaterialApp(
@@ -306,15 +313,17 @@ void main() {
       );
 
       expect(find.text(r'$14,000'), findsOneWidget);
-      expect(find.textContaining(r'Regular $4,500'), findsOneWidget);
-      expect(find.textContaining(r'Planned $8,000'), findsOneWidget);
-      expect(find.textContaining(r'Unexpected $1,500'), findsOneWidget);
-      expect(find.text('17 (including today)'), findsOneWidget);
-      expect(find.text('\$88.24'), findsOneWidget);
+      expect(find.textContaining(r'$12,500 against budget'), findsOneWidget);
+      expect(find.textContaining(r'$1,500 unexpected excluded'), findsOneWidget);
+      expect(find.textContaining('Over budget by'), findsOneWidget);
+      expect(
+        find.textContaining('Daily Allowance Not available while over budget'),
+        findsOneWidget,
+      );
       final progress = tester.widget<LinearProgressIndicator>(
         find.byType(LinearProgressIndicator),
       );
-      expect(progress.value, 0.75);
+      expect(progress.value, 0);
     },
   );
 }

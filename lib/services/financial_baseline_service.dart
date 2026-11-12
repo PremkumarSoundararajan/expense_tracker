@@ -18,9 +18,16 @@ class FinancialBaselineMatch {
 
   Set<BaselineGroup> get groups =>
       mappings.map((mapping) => mapping.group).toSet();
-  bool get needsReview => !isIgnored && groups.length > 1;
+  bool get needsReview {
+    if (isIgnored || mappings.length < 2) return false;
+    final group = mappings.first.group;
+    return mappings.any((mapping) => mapping.group != group);
+  }
+
   BaselineGroup? get assignedGroup =>
-      !isIgnored && !needsReview && groups.isNotEmpty ? groups.single : null;
+      !isIgnored && mappings.isNotEmpty && !needsReview
+      ? mappings.first.group
+      : null;
 }
 
 class BaselineGroupMetrics {
@@ -87,8 +94,97 @@ class FinancialBaselineSummary {
       metrics[BaselineGroup.potentiallyFlexible]!;
 }
 
+/// One immutable result shared by the organizer, insights and planner.
+class FinancialBaselineAnalysis {
+  const FinancialBaselineAnalysis({
+    required this.matches,
+    required this.summary,
+  });
+  final List<FinancialBaselineMatch> matches;
+  final FinancialBaselineSummary summary;
+}
+
+class _MerchantRuleNode {
+  final children = <String, _MerchantRuleNode>{};
+  final rules = <(int, FinancialBaselineMapping)>[];
+}
+
+/// Token-prefix index preserves whole-word, contiguous matching and all
+/// overlapping rules, without scanning every saved merchant for every expense.
+class FinancialBaselineMerchantMatcher {
+  FinancialBaselineMerchantMatcher._(
+    Iterable<FinancialBaselineMapping> mappings,
+    this._key,
+  ) {
+    var index = 0;
+    for (final mapping in mappings) {
+      final fingerprint = _key(mapping.merchantFingerprint);
+      if (fingerprint.isNotEmpty) {
+        var node = _root;
+        for (final token in fingerprint.split(' ')) {
+          node = node.children.putIfAbsent(token, _MerchantRuleNode.new);
+        }
+        node.rules.add((index, mapping));
+      }
+      index++;
+    }
+  }
+  final String Function(String) _key;
+  final _root = _MerchantRuleNode();
+  final _matches = <String, List<FinancialBaselineMapping>>{};
+
+  List<FinancialBaselineMapping> match(String description) {
+    return matchKey(_key(description));
+  }
+
+  List<FinancialBaselineMapping> matchKey(String key) {
+    final cached = _matches[key];
+    if (cached != null) return cached;
+    final tokens = key.split(' ');
+    final found = <int, FinancialBaselineMapping>{};
+    for (var start = 0; start < tokens.length; start++) {
+      var node = _root;
+      for (var end = start; end < tokens.length; end++) {
+        final child = node.children[tokens[end]];
+        if (child == null) break;
+        node = child;
+        for (final rule in node.rules) {
+          found[rule.$1] = rule.$2;
+        }
+      }
+    }
+    final indices = found.keys.toList()..sort();
+    final result = List<FinancialBaselineMapping>.unmodifiable([
+      for (final i in indices) found[i]!,
+    ]);
+    if (_matches.length >= 4096) _matches.remove(_matches.keys.first);
+    return _matches[key] = result;
+  }
+}
+
 class FinancialBaselineService {
-  final MerchantNormalizer _normalizer = const MerchantNormalizer();
+  FinancialBaselineService({MerchantNormalizer? normalizer})
+    : _normalizer = normalizer ?? const MerchantNormalizer();
+  final MerchantNormalizer _normalizer;
+  final _merchantKeys = <String, String>{};
+  final _ignored = <(String, String), bool>{};
+  // Transactions are immutable. Weak identity caching avoids renormalizing a
+  // large ledger after each assignment, without retaining replaced ledgers.
+  final _preparedTransactions = Expando<(bool, String)>('baseline transaction');
+
+  String merchantKey(String description) {
+    final cached = _merchantKeys[description];
+    if (cached != null) return cached;
+    final key = _normalizer.normalize(description).toLowerCase().trim();
+    if (_merchantKeys.length >= 4096) {
+      _merchantKeys.remove(_merchantKeys.keys.first);
+    }
+    return _merchantKeys[description] = key;
+  }
+
+  FinancialBaselineMerchantMatcher merchantMatcher(
+    Iterable<FinancialBaselineMapping> mappings,
+  ) => FinancialBaselineMerchantMatcher._(mappings, merchantKey);
 
   static const _ignoredPhrases = <String>[
     'transfer',
@@ -116,15 +212,32 @@ class FinancialBaselineService {
     required Iterable<Transaction> transactions,
     required Iterable<FinancialBaselineMapping> mappings,
   }) {
-    final configuredMappings = mappings.toList(growable: false);
+    final matcher = merchantMatcher(mappings);
     return transactions
         .map((transaction) {
-          final ignored = _isIgnored(transaction);
-          final matched = ignored
+          var prepared = _preparedTransactions[transaction];
+          if (prepared == null) {
+            final ignored = _isIgnored(transaction);
+            prepared = (
+              ignored,
+              ignored ? '' : merchantKey(transaction.description),
+            );
+            _preparedTransactions[transaction] = prepared;
+          }
+          final ignored = prepared.$1;
+          final masterGroup = transaction.baselineGroup;
+          final matched = masterGroup != null
+              ? masterGroup == 'Unclassified'
+                    ? const <FinancialBaselineMapping>[]
+                    : [
+                        FinancialBaselineMapping(
+                          merchantFingerprint: transaction.description,
+                          group: BaselineGroup.parse(masterGroup),
+                        ),
+                      ]
+              : ignored
               ? const <FinancialBaselineMapping>[]
-              : configuredMappings
-                    .where((mapping) => _matches(transaction, mapping))
-                    .toList(growable: false);
+              : matcher.matchKey(prepared.$2);
           return FinancialBaselineMatch(
             transaction: transaction,
             mappings: matched,
@@ -135,6 +248,11 @@ class FinancialBaselineService {
   }
 
   FinancialBaselineSummary summarize({
+    required Iterable<Transaction> transactions,
+    required Iterable<FinancialBaselineMapping> mappings,
+  }) => analyze(transactions: transactions, mappings: mappings).summary;
+
+  FinancialBaselineAnalysis analyze({
     required Iterable<Transaction> transactions,
     required Iterable<FinancialBaselineMapping> mappings,
   }) {
@@ -173,26 +291,27 @@ class FinancialBaselineService {
               : totals[group]! / monthCount * 12,
         ),
     };
-    return FinancialBaselineSummary(
+    final summary = FinancialBaselineSummary(
       monthCount: monthCount,
-      metrics: metrics,
+      metrics: Map.unmodifiable(metrics),
       conflictCount: conflictCount,
       conflictAmount: conflictAmount,
       ignoredCount: ignoredCount,
       unclassifiedAmount: unclassifiedAmount,
       trackedSpending: trackedSpending,
     );
+    return FinancialBaselineAnalysis(
+      matches: List.unmodifiable(matches),
+      summary: summary,
+    );
   }
 
-  bool _matches(Transaction transaction, FinancialBaselineMapping mapping) {
-    final searchable = _normalizer
-        .normalize(transaction.description)
-        .toLowerCase()
-        .trim();
-    final merchant = _normalizer
-        .normalize(mapping.merchantFingerprint)
-        .toLowerCase()
-        .trim();
+  /// Shared by ledger classification and the merchant inventory. Future
+  /// entries inherit confirmed merchant rules without persisting transaction
+  /// classifications or creating a new mapping for every statement variant.
+  bool matchesMerchant(String description, FinancialBaselineMapping mapping) {
+    final searchable = merchantKey(description);
+    final merchant = merchantKey(mapping.merchantFingerprint);
     if (searchable.isEmpty || merchant.isEmpty) return false;
     return searchable == merchant ||
         searchable.startsWith('$merchant ') ||
@@ -202,14 +321,18 @@ class FinancialBaselineService {
 
   bool _isIgnored(Transaction transaction) {
     if (transaction.amount <= 0 || !transaction.amount.isFinite) return true;
-    if (isTransferTransaction(transaction) ||
-        isInternalTransfer(transaction.description)) {
-      return true;
-    }
+    final key = (transaction.category, transaction.description);
+    final cached = _ignored[key];
+    if (cached != null) return cached;
     final searchable = '${transaction.category} ${transaction.description}'
         .trim()
         .toLowerCase();
-    return _ignoredPhrases.any(searchable.contains);
+    final ignored =
+        transaction.category.trim().toUpperCase() == 'TRANSFERS' ||
+        isInternalTransfer(transaction.description) ||
+        _ignoredPhrases.any(searchable.contains);
+    if (_ignored.length >= 4096) _ignored.remove(_ignored.keys.first);
+    return _ignored[key] = ignored;
   }
 
   int _calendarMonthSpan(List<Transaction> transactions) {
@@ -229,26 +352,32 @@ class FinancialBaselineProvider extends ChangeNotifier {
     Iterable<Transaction> transactions = const [],
     Iterable<FinancialBaselineMapping> mappings = const [],
     FinancialBaselineService? service,
-  }) : _transactions = List.of(transactions),
-       _mappings = List.of(mappings),
+  }) : _transactions = List.unmodifiable(transactions),
+       _mappings = List.unmodifiable(mappings),
        _service = service ?? FinancialBaselineService();
 
   List<Transaction> _transactions;
   List<FinancialBaselineMapping> _mappings;
   final FinancialBaselineService _service;
 
-  List<Transaction> get transactions => List.unmodifiable(_transactions);
-  List<FinancialBaselineMapping> get mappings => List.unmodifiable(_mappings);
-  FinancialBaselineSummary get summary =>
-      _service.summarize(transactions: _transactions, mappings: _mappings);
+  FinancialBaselineAnalysis? _analysis;
+  List<Transaction> get transactions => _transactions;
+  List<FinancialBaselineMapping> get mappings => _mappings;
+  FinancialBaselineAnalysis get analysis => _analysis ??= _service.analyze(
+    transactions: _transactions,
+    mappings: _mappings,
+  );
+  FinancialBaselineSummary get summary => analysis.summary;
 
   void updateTransactions(Iterable<Transaction> transactions) {
-    _transactions = List.of(transactions);
+    _transactions = List.unmodifiable(transactions);
+    _analysis = null;
     notifyListeners();
   }
 
   void updateMappings(Iterable<FinancialBaselineMapping> mappings) {
-    _mappings = List.of(mappings);
+    _mappings = List.unmodifiable(mappings);
+    _analysis = null;
     notifyListeners();
   }
 }

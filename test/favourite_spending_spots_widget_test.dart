@@ -14,7 +14,7 @@ void main() {
           date: DateTime(2025, 5, 1),
           amount: index * 10,
           category: 'Food / Household',
-          description: 'Merchant $index',
+          description: 'Merchant ${String.fromCharCode(64 + index)}',
         ),
     ];
 
@@ -30,9 +30,9 @@ void main() {
       ),
     );
 
-    expect(find.text('Merchant 6'), findsOneWidget);
-    expect(find.text('Merchant 2'), findsOneWidget);
-    expect(find.text('Merchant 1'), findsNothing);
+    expect(find.text('Merchant F'), findsOneWidget);
+    expect(find.text('Merchant B'), findsOneWidget);
+    expect(find.text('Merchant A'), findsNothing);
   });
 
   testWidgets('opens a spot detail with the original transaction and returns', (
@@ -68,10 +68,11 @@ void main() {
     );
 
     expect(find.text('Your Favourite Spending Spots'), findsOneWidget);
-    await tester.tap(find.text('Tokyo Cafe #123 WEB ID: 987654'));
+    await tester.tap(find.text('Tokyo Cafe'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Tokyo Cafe #123 WEB ID: 987654'), findsNWidgets(2));
+    expect(find.text('Tokyo Cafe'), findsOneWidget);
+    expect(find.text('Tokyo Cafe #123 WEB ID: 987654'), findsOneWidget);
     expect(
       find.text('2025-06-12 · Food / Household · Planned Occasional'),
       findsOneWidget,

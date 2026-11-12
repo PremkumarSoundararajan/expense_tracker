@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../services/monthly_rollover_service.dart';
+import '../services/budget_comparison.dart';
 import '../services/suggested_budget_service.dart';
 import '../utils/currency_format.dart';
 import '../utils/transaction_period_format.dart';
@@ -11,6 +12,8 @@ class MonthlyBudgetCard extends StatelessWidget {
     super.key,
     required this.currentSpent,
     this.regularSpent,
+    this.spending,
+    this.onReviewUnclassified,
     this.plannedOccasionalSpent = 0,
     this.unexpectedOccasionalSpent = 0,
     required this.currencySymbol,
@@ -27,7 +30,9 @@ class MonthlyBudgetCard extends StatelessWidget {
   });
 
   final double currentSpent;
+  final BudgetSpending? spending;
   final double? regularSpent;
+  final VoidCallback? onReviewUnclassified;
   final double plannedOccasionalSpent;
   final double unexpectedOccasionalSpent;
   final String currencySymbol;
@@ -49,35 +54,37 @@ class MonthlyBudgetCard extends StatelessWidget {
     final currentDate = now ?? DateTime.now();
     final month = selectedMonth ?? monthStart(currentDate);
     final isCurrentMonth = isSameMonth(month, currentDate);
-    final totalDaysInMonth = DateUtils.getDaysInMonth(
-      month.year,
-      month.month,
-    );
+    final totalDaysInMonth = DateUtils.getDaysInMonth(month.year, month.month);
     final daysRemaining = isCurrentMonth
         ? (totalDaysInMonth - currentDate.day) + 1
         : 0;
     final target = monthlyTarget;
-    final budgetSpend = regularSpent ?? currentSpent;
-    final occasionalSpent =
-        plannedOccasionalSpent + unexpectedOccasionalSpent;
+    final amounts =
+        spending ??
+        BudgetSpending.fromAmounts(
+          total: currentSpent,
+          regular: regularSpent ?? currentSpent,
+          planned: plannedOccasionalSpent,
+          unexpected: unexpectedOccasionalSpent,
+        );
+    final budgetSpend = amounts.budgetRelevant;
+    final unknownSpent = amounts.unknown;
     final hasBudget = target != null && target.isFinite && target >= 0;
-    // Everything on this card is shown in whole dollars, and derived figures
-    // (remaining, daily allowance, outcome) are computed from the rounded
-    // numbers so they add up on a calculator.
-    final targetWhole = target != null && target.isFinite
-        ? target.roundToDouble()
-        : null;
-    final budgetRemaining = (targetWhole ?? 0) - budgetSpend.roundToDouble();
-    final overBudget = hasBudget && budgetRemaining < 0;
-    final dailyAllowance = hasBudget && !overBudget && daysRemaining > 0
+    // Determine the result in minor units; round only the displayed amounts.
+    final result = hasBudget ? amounts.outcome(target) : null;
+    final uncertain = result == BudgetOutcome.uncertain;
+    final budgetRemaining = hasBudget ? amounts.remaining(target) : 0.0;
+    final overBudget = result == BudgetOutcome.over;
+    final dailyAllowance =
+        hasBudget && !overBudget && !uncertain && daysRemaining > 0
         ? budgetRemaining / daysRemaining
         : null;
     final percentLeft = target != null && target > 0
-        ? ((target - budgetSpend) / target * 100).clamp(0, 100).toDouble()
+        ? (budgetRemaining / target * 100).clamp(0, 100).toDouble()
         : 0.0;
     final budgetRemainingProgress = percentLeft / 100;
     // Past months are shown as a finished result rather than a live budget.
-    final outcome = !isCurrentMonth && target != null && hasBudget
+    final outcome = !isCurrentMonth && target != null && hasBudget && !uncertain
         ? _BudgetOutcome.from(
             target: target,
             spent: budgetSpend,
@@ -85,6 +92,16 @@ class MonthlyBudgetCard extends StatelessWidget {
           )
         : null;
     final outcomeColor = outcome?.color(theme);
+    String money(double value) => formatFullCurrency(value, currencySymbol);
+    final outcomeText = !hasBudget
+        ? (isCurrentMonth ? 'Set a monthly budget' : 'No budget recorded')
+        : !isCurrentMonth
+        ? outcome!.text
+        : overBudget
+        ? 'Over budget by ${money(budgetSpend - target)}'
+        : result == BudgetOutcome.exact
+        ? 'Exactly on budget'
+        : 'Within budget · ${money(budgetRemaining)} remaining';
 
     return Card(
       margin: EdgeInsets.zero,
@@ -149,7 +166,7 @@ class MonthlyBudgetCard extends StatelessWidget {
                       children: [
                         Expanded(
                           child: Text(
-                            _formatAmount(currentSpent),
+                            _formatAmount(amounts.total),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: theme.textTheme.headlineMedium?.copyWith(
@@ -171,7 +188,7 @@ class MonthlyBudgetCard extends StatelessWidget {
                 ),
               ),
             ),
-            if (isCurrentMonth && rolloverRecap != null) ...[
+            if (isCurrentMonth && rolloverRecap != null && !uncertain) ...[
               const SizedBox(height: 10),
               _RolloverRecapBanner(
                 recap: rolloverRecap!,
@@ -179,12 +196,16 @@ class MonthlyBudgetCard extends StatelessWidget {
               ),
             ],
             const SizedBox(height: 6),
-            _ExpenseTypeBreakdown(
-              actual: currentSpent,
-              regular: budgetSpend,
-              occasional: occasionalSpent,
-              currencySymbol: currencySymbol,
+            Text(
+              '${money(budgetSpend)} against budget · ${money(amounts.unexpected)} unexpected excluded',
+              style: theme.textTheme.bodySmall,
             ),
+            if (amounts.hasUnknown)
+              TextButton(
+                key: const ValueKey('monthly-budget-coverage'),
+                onPressed: onReviewUnclassified,
+                child: Text('${money(unknownSpent)} unclassified · Review'),
+              ),
             const SizedBox(height: 10),
             Container(
               key: const ValueKey('monthly-budget-summary'),
@@ -195,6 +216,11 @@ class MonthlyBudgetCard extends StatelessWidget {
               ),
               child: Column(
                 children: [
+                  Text(
+                    'Actual minus unexpected expenses',
+                    style: theme.textTheme.labelSmall,
+                  ),
+                  const SizedBox(height: 6),
                   Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -238,9 +264,7 @@ class MonthlyBudgetCard extends StatelessWidget {
                           crossAxisAlignment: CrossAxisAlignment.end,
                           children: [
                             Text(
-                              isCurrentMonth
-                                  ? 'Budget remaining'
-                                  : 'Budget outcome',
+                              'Budget outcome',
                               textAlign: TextAlign.right,
                               style: theme.textTheme.labelSmall?.copyWith(
                                 color: colorScheme.onSurfaceVariant,
@@ -250,16 +274,7 @@ class MonthlyBudgetCard extends StatelessWidget {
                             const SizedBox(height: 2),
                             Text(
                               key: const ValueKey('budget-remaining-value'),
-                              !isCurrentMonth
-                                  ? (outcome?.text ?? 'No budget recorded')
-                                  : !hasBudget
-                                  ? 'Set a monthly budget'
-                                  : overBudget
-                                  ? 'Over budget by ${formatWholeCurrency(budgetRemaining.abs(), currencySymbol)}'
-                                  : formatWholeCurrency(
-                                      budgetRemaining,
-                                      currencySymbol,
-                                    ),
+                              outcomeText,
                               textAlign: TextAlign.right,
                               style: isCurrentMonth
                                   ? theme.textTheme.titleLarge?.copyWith(
@@ -278,7 +293,7 @@ class MonthlyBudgetCard extends StatelessWidget {
                       ),
                     ],
                   ),
-                  if (target != null && target > 0) ...[
+                  if (target != null && target > 0 && !uncertain) ...[
                     const SizedBox(height: 6),
                     ClipRRect(
                       borderRadius: BorderRadius.circular(8),
@@ -302,7 +317,7 @@ class MonthlyBudgetCard extends StatelessWidget {
                       ),
                     ],
                   ],
-                  if (isCurrentMonth) ...[
+                  if (isCurrentMonth && !uncertain) ...[
                     const SizedBox(height: 10),
                     Center(
                       child: Container(
@@ -374,17 +389,23 @@ class _BudgetOutcome {
     required String currencySymbol,
   }) {
     // Whole-dollar comparison: "exactly on budget" means equal once rounded.
-    final targetWhole = target.round();
-    final difference = targetWhole - spent.round();
+    final targetWhole = target;
+    final difference = ((target * 100).round() - (spent * 100).round()) / 100;
     if (difference == 0) {
       return const _BudgetOutcome._(_OutcomeKind.exact, 'Exactly on budget');
     }
-    final amount = formatWholeCurrency(difference.abs().toDouble(), currencySymbol);
+    final amount = formatFullCurrency(
+      difference.abs().toDouble(),
+      currencySymbol,
+    );
     final percent = targetWhole > 0
         ? ' (${_formatPercent(difference.abs() / targetWhole * 100)})'
         : '';
     return difference > 0
-        ? _BudgetOutcome._(_OutcomeKind.under, 'Under budget by $amount$percent')
+        ? _BudgetOutcome._(
+            _OutcomeKind.under,
+            'Within budget by $amount$percent',
+          )
         : _BudgetOutcome._(_OutcomeKind.over, 'Over budget by $amount$percent');
   }
 
@@ -522,75 +543,6 @@ class _DailyAllowanceBadgeContent extends StatelessWidget {
   }
 }
 
-class _ExpenseTypeBreakdown extends StatelessWidget {
-  const _ExpenseTypeBreakdown({
-    required this.actual,
-    required this.regular,
-    required this.occasional,
-    required this.currencySymbol,
-  });
-
-  final double actual;
-  final double regular;
-  final double occasional;
-  final String currencySymbol;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final color = theme.colorScheme.onSurfaceVariant;
-    return Wrap(
-      spacing: 12,
-      runSpacing: 4,
-      children: [
-        _ExpenseTypeLabel(
-          label: 'Actual',
-          amount: actual,
-          currencySymbol: currencySymbol,
-          color: color,
-        ),
-        _ExpenseTypeLabel(
-          label: 'Regular',
-          amount: regular,
-          currencySymbol: currencySymbol,
-          color: color,
-        ),
-        _ExpenseTypeLabel(
-          label: 'Occasional',
-          amount: occasional,
-          currencySymbol: currencySymbol,
-          color: color,
-        ),
-      ],
-    );
-  }
-}
-
-class _ExpenseTypeLabel extends StatelessWidget {
-  const _ExpenseTypeLabel({
-    required this.label,
-    required this.amount,
-    required this.currencySymbol,
-    required this.color,
-  });
-
-  final String label;
-  final double amount;
-  final String currencySymbol;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
-    return Text(
-      '$label ${formatWholeCurrency(amount, currencySymbol)}',
-      style: Theme.of(context).textTheme.bodySmall?.copyWith(color: color),
-      maxLines: 1,
-      softWrap: false,
-      overflow: TextOverflow.visible,
-    );
-  }
-}
-
 class _RolloverRecapBanner extends StatelessWidget {
   const _RolloverRecapBanner({
     required this.recap,
@@ -604,6 +556,7 @@ class _RolloverRecapBanner extends StatelessWidget {
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
     final stayedUnderBudget = recap.stayedUnderBudget;
+    final exact = recap.difference == 0;
 
     return Container(
       width: double.infinity,
@@ -615,7 +568,9 @@ class _RolloverRecapBanner extends StatelessWidget {
         borderRadius: BorderRadius.circular(12),
       ),
       child: Text(
-        stayedUnderBudget
+        exact
+            ? 'Last month finished exactly on budget.'
+            : stayedUnderBudget
             ? '🎉 Great job last month! You stayed under budget by '
                   '${formatWholeCurrency(recap.difference, currencySymbol)}.'
             : '⚠️ Last month finished over budget by '
@@ -630,4 +585,4 @@ class _RolloverRecapBanner extends StatelessWidget {
       ),
     );
   }
-}
+}

@@ -36,6 +36,7 @@ class WorkerCsvSyncService {
     required String spreadsheetId,
     required String csv,
     Map<String, Object?>? categoryConfig,
+    bool requireMerchantReview = false,
   }) async {
     final capabilityResponse = await _client.get(endpoint);
     if (capabilityResponse.statusCode < 200 ||
@@ -47,6 +48,17 @@ class WorkerCsvSyncService {
     }
     final capabilities =
         jsonDecode(capabilityResponse.body) as Map<String, dynamic>;
+    if (requireMerchantReview &&
+        capabilities['merchantClassificationReview'] != true) {
+      throw StateError(
+        'Update the Pocket Ledger Worker before importing with merchant classifications. No statement was imported.',
+      );
+    }
+    if (capabilities['expenseTypeReview'] != true) {
+      throw StateError(
+        'Update the Pocket Ledger Worker to support Expense Type review before importing.',
+      );
+    }
     if (capabilities['reviewPreview'] != true) {
       throw StateError(
         'The Cloudflare Worker does not support statement review yet. '
@@ -171,6 +183,10 @@ class WorkerExpensePreview {
     this.categoryId,
     this.userEdited = false,
     this.rememberMapping = false,
+    this.expenseTypeSource = 'Needs Review',
+    this.expenseTypeEdited = false,
+    this.existingExpenseType,
+    this.transactionId,
   });
 
   final String date;
@@ -179,6 +195,10 @@ class WorkerExpensePreview {
   final bool categoryMatched;
   final String description;
   final String expenseType;
+  final String expenseTypeSource;
+  final bool expenseTypeEdited;
+  final String? existingExpenseType;
+  final String? transactionId;
   final bool duplicate;
   final int? duplicateRow;
   final String? existingCategory;
@@ -191,7 +211,8 @@ class WorkerExpensePreview {
       duplicate &&
       existingCategory != null &&
       category.trim().toLowerCase() != existingCategory!.trim().toLowerCase();
-  bool get willImport => !duplicate || importAnyway || categoryChanged;
+  bool get willImport =>
+      !duplicate || importAnyway || categoryChanged || expenseTypeEdited;
 
   factory WorkerExpensePreview.fromJson(Map<String, dynamic> json) {
     final description = json['description']?.toString() ?? '';
@@ -206,13 +227,61 @@ class WorkerExpensePreview {
           : 'Lifestyle / Misc',
       categoryMatched: json['categoryMatched'] == true,
       description: description,
-      expenseType: json['expenseType']?.toString() ?? 'Regular',
+      expenseType: ExpenseType.parse(json['expenseType']).sheetValue,
+      expenseTypeSource:
+          json['expenseTypeSource']?.toString() ?? 'Needs Review',
+      existingExpenseType: json['existingExpenseType']?.toString(),
+      transactionId: json['transactionId']?.toString(),
       duplicate: json['duplicate'] == true,
       duplicateRow: (json['duplicateRow'] as num?)?.toInt(),
       existingCategory: json['existingCategory']?.toString(),
       categoryId: json['categoryId']?.toString(),
     );
   }
+
+  WorkerExpensePreview withMerchantCategory(
+    String value,
+    String? id, {
+    String? expenseTypeValue,
+  }) => WorkerExpensePreview(
+    date: date,
+    amount: amount,
+    category: value,
+    categoryId: id,
+    categoryMatched: true,
+    description: description,
+    expenseType: expenseTypeValue ?? expenseType,
+    duplicate: duplicate,
+    duplicateRow: duplicateRow,
+    existingCategory: existingCategory,
+    importAnyway: importAnyway,
+    userEdited: userEdited,
+    rememberMapping: rememberMapping,
+    expenseTypeSource: expenseTypeSource,
+    expenseTypeEdited: expenseTypeEdited,
+    existingExpenseType: existingExpenseType,
+    transactionId: transactionId,
+  );
+
+  WorkerExpensePreview withExpenseType(String value) => WorkerExpensePreview(
+    date: date,
+    amount: amount,
+    category: category,
+    categoryMatched: categoryMatched,
+    description: description,
+    expenseType: ExpenseType.parse(value).sheetValue,
+    duplicate: duplicate,
+    duplicateRow: duplicateRow,
+    existingCategory: existingCategory,
+    importAnyway: importAnyway,
+    categoryId: categoryId,
+    userEdited: userEdited,
+    rememberMapping: rememberMapping,
+    expenseTypeSource: 'Confirmed',
+    expenseTypeEdited: true,
+    existingExpenseType: existingExpenseType,
+    transactionId: transactionId,
+  );
 
   WorkerExpensePreview withCategory(String value, {String? categoryId}) =>
       WorkerExpensePreview(
@@ -222,11 +291,16 @@ class WorkerExpensePreview {
         categoryMatched: true,
         description: description,
         expenseType: expenseType,
+        expenseTypeSource: expenseTypeSource,
+        expenseTypeEdited: expenseTypeEdited,
+        existingExpenseType: existingExpenseType,
+        transactionId: transactionId,
         duplicate: duplicate,
         duplicateRow: duplicateRow,
         existingCategory: existingCategory,
         importAnyway: importAnyway,
         categoryId: categoryId ?? this.categoryId,
+        rememberMapping: rememberMapping,
         userEdited: true,
       );
 
@@ -237,6 +311,10 @@ class WorkerExpensePreview {
     categoryMatched: categoryMatched,
     description: description,
     expenseType: expenseType,
+    expenseTypeSource: expenseTypeSource,
+    expenseTypeEdited: expenseTypeEdited,
+    existingExpenseType: existingExpenseType,
+    transactionId: transactionId,
     duplicate: duplicate,
     duplicateRow: duplicateRow,
     existingCategory: existingCategory,
@@ -253,6 +331,10 @@ class WorkerExpensePreview {
     categoryMatched: categoryMatched,
     description: description,
     expenseType: expenseType,
+    expenseTypeSource: expenseTypeSource,
+    expenseTypeEdited: expenseTypeEdited,
+    existingExpenseType: existingExpenseType,
+    transactionId: transactionId,
     duplicate: duplicate,
     duplicateRow: duplicateRow,
     existingCategory: existingCategory,
@@ -271,8 +353,10 @@ String buildReviewedExpenseCsv(Iterable<WorkerExpensePreview> rows) {
       'Category',
       'Description',
       'Expense Type',
+      'Expense Type Reviewed',
       'Import Anyway',
       'Category ID',
+      'Category Reviewed',
     ],
     for (final row in rows)
       [
@@ -281,8 +365,10 @@ String buildReviewedExpenseCsv(Iterable<WorkerExpensePreview> rows) {
         row.category,
         row.description,
         row.expenseType,
+        row.expenseTypeEdited ? 'TRUE' : 'FALSE',
         row.importAnyway ? 'TRUE' : 'FALSE',
         row.categoryId ?? '',
+        row.userEdited ? 'TRUE' : 'FALSE',
       ],
   ]);
 }
@@ -304,7 +390,7 @@ String buildExpenseCsv(Iterable<Transaction> transactions) {
         transaction.amount.toString(),
         transaction.category,
         transaction.description,
-        transaction.expenseType.sheetValue,
+        transaction.expenseTypeStorageValue,
         transaction.id ?? '',
         transaction.categoryId ?? '',
       ],

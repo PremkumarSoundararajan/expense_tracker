@@ -91,6 +91,11 @@ const List<String> _genericInstitutionHints = [
   'BANK',
 ];
 
+final _paypalMerchantTransfer = RegExp(r'\bINST XFER\b');
+final _explicitTransferPattern = RegExp(
+  r'\b(?:' + _explicitTransferKeywords.map(RegExp.escape).join('|') + r')\b',
+);
+
 /// Evaluates whether a transaction description qualifies as an internal transfer
 /// following the strict multi-step decision hierarchy.
 bool isInternalTransfer(
@@ -112,12 +117,8 @@ bool isInternalTransfer(
   // 3. Explicit Transfer Wording & Brokerage/Card Payment keywords.
   // PayPal labels merchant payments "INST XFER" (Disney+, Uber, ...). That is
   // an expense, so remove it before keyword matching.
-  final keywordText = upper.replaceAll(RegExp(r'\bINST XFER\b'), ' ');
-  for (final keyword in _explicitTransferKeywords) {
-    if (RegExp(r'\b' + RegExp.escape(keyword) + r'\b').hasMatch(keywordText)) {
-      return true;
-    }
-  }
+  final keywordText = upper.replaceAll(_paypalMerchantTransfer, ' ');
+  if (_explicitTransferPattern.hasMatch(keywordText)) return true;
 
   // 4. Own-Name + Financial Institution Hint in ACH/Wire text
   bool matchesOwnName = context.ownNames.any(

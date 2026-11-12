@@ -4,7 +4,8 @@ import 'dart:math';
 enum ExpenseType {
   regular,
   plannedOccasional,
-  unexpectedOccasional;
+  unexpectedOccasional,
+  unknown;
 
   String get sheetValue {
     switch (this) {
@@ -14,6 +15,8 @@ enum ExpenseType {
         return 'Planned Occasional';
       case ExpenseType.unexpectedOccasional:
         return 'Unexpected Occasional';
+      case ExpenseType.unknown:
+        return 'Unknown';
     }
   }
 
@@ -28,8 +31,10 @@ enum ExpenseType {
       case 'unexpectedoccasional':
       case 'unexpected':
         return ExpenseType.unexpectedOccasional;
-      default:
+      case 'regular':
         return ExpenseType.regular;
+      default:
+        return ExpenseType.unknown;
     }
   }
 }
@@ -40,19 +45,26 @@ class Transaction {
   final String category;
   final String description;
   final ExpenseType expenseType;
+  final String? originalExpenseType;
+  String get expenseTypeStorageValue => expenseType == ExpenseType.unknown
+      ? (originalExpenseType ?? expenseType.sheetValue)
+      : expenseType.sheetValue;
   final String? id;
   final int? sheetRow;
   final String? categoryId;
+  final String? baselineGroup;
 
   const Transaction({
     required this.date,
     required this.amount,
     required this.category,
     this.description = '',
-    this.expenseType = ExpenseType.regular,
+    this.expenseType = ExpenseType.unknown,
+    this.originalExpenseType,
     this.id,
     this.sheetRow,
     this.categoryId,
+    this.baselineGroup,
   });
 
   String get dateOnlyIsoString => date.toIso8601String().split('T').first;
@@ -68,6 +80,7 @@ class Transaction {
       category: row.length > 2 ? row[2].toString() : '',
       description: row.length > 3 ? row[3].toString() : '',
       expenseType: ExpenseType.parse(row.length > 4 ? row[4] : null),
+      originalExpenseType: row.length > 4 ? row[4]?.toString() : null,
       id: row.length > 5 && row[5].toString().trim().isNotEmpty
           ? row[5].toString().trim()
           : null,
@@ -94,6 +107,7 @@ class Transaction {
       category: row.length > 2 ? row[2].toString() : '',
       description: row.length > 3 ? row[3].toString() : '',
       expenseType: ExpenseType.parse(row.length > 4 ? row[4] : null),
+      originalExpenseType: row.length > 4 ? row[4]?.toString() : null,
       id: row.length > 5 && row[5].toString().trim().isNotEmpty
           ? row[5].toString().trim()
           : null,
@@ -110,9 +124,13 @@ class Transaction {
       category: json['category']?.toString() ?? '',
       description: json['description']?.toString() ?? '',
       expenseType: ExpenseType.parse(json['expenseType']),
+      originalExpenseType: json.containsKey('originalExpenseType')
+          ? json['originalExpenseType']?.toString()
+          : json['expenseType']?.toString(),
       id: json['id']?.toString(),
       sheetRow: (json['sheetRow'] as num?)?.toInt(),
       categoryId: json['categoryId']?.toString(),
+      baselineGroup: json['baselineGroup']?.toString(),
     );
   }
 
@@ -123,6 +141,8 @@ class Transaction {
     String? description,
     ExpenseType? expenseType,
     String? categoryId,
+    String? baselineGroup,
+    bool clearBaselineGroup = false,
   }) {
     return Transaction(
       date: date ?? this.date,
@@ -130,9 +150,13 @@ class Transaction {
       category: category ?? this.category,
       description: description ?? this.description,
       expenseType: expenseType ?? this.expenseType,
+      originalExpenseType: expenseType == null ? originalExpenseType : null,
       id: id,
       sheetRow: sheetRow,
       categoryId: categoryId ?? this.categoryId,
+      baselineGroup: clearBaselineGroup
+          ? null
+          : baselineGroup ?? this.baselineGroup,
     );
   }
 
@@ -142,9 +166,11 @@ class Transaction {
     'category': category,
     'description': description,
     'expenseType': expenseType.sheetValue,
+    'originalExpenseType': originalExpenseType,
     'id': id,
     'sheetRow': sheetRow,
     'categoryId': categoryId,
+    'baselineGroup': baselineGroup,
   };
 
   String toJsonString() => jsonEncode(toJson());

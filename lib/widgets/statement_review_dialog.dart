@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../models/expense_category.dart';
+import '../models/transaction.dart';
 import '../services/worker_csv_sync_service.dart';
 
 class StatementReviewDialog extends StatefulWidget {
@@ -12,12 +13,14 @@ class StatementReviewDialog extends StatefulWidget {
     required this.preview,
     required this.currencySymbol,
     this.categories = const [],
+    this.emailReview = false,
   });
 
   final String fileName;
   final WorkerCsvPreview preview;
   final String currencySymbol;
   final List<ExpenseCategory> categories;
+  final bool emailReview;
 
   @override
   State<StatementReviewDialog> createState() => _StatementReviewDialogState();
@@ -28,14 +31,66 @@ class _StatementReviewDialogState extends State<StatementReviewDialog> {
     widget.preview.rows,
   );
 
+  final Set<int> _selected = {};
+  bool _unknownOnly = false;
+  Widget _typeControls(int index) {
+    final row = _rows[index];
+    return Row(
+      children: [
+        Checkbox(
+          key: ValueKey('statement-select-$index'),
+          value: _selected.contains(index),
+          onChanged: (value) => setState(() {
+            value == true ? _selected.add(index) : _selected.remove(index);
+          }),
+        ),
+        Expanded(
+          child: DropdownButtonFormField<String>(
+            key: ValueKey('statement-type-$index-${row.expenseType}'),
+            initialValue: ExpenseType.parse(row.expenseType).sheetValue,
+            isExpanded: true,
+            decoration: InputDecoration(
+              labelText: 'Expense Type · ${row.expenseTypeSource}',
+              isDense: true,
+            ),
+            items: ExpenseType.values
+                .map(
+                  (type) => DropdownMenuItem(
+                    value: type.sheetValue,
+                    child: Text(type.sheetValue),
+                  ),
+                )
+                .toList(),
+            onChanged: (value) {
+              if (value != null) {
+                setState(
+                  () => _rows[index] = _rows[index].withExpenseType(value),
+                );
+              }
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final visible = [
+      for (var i = 0; i < _rows.length; i++)
+        if (!_unknownOnly ||
+            ExpenseType.parse(_rows[i].expenseType) == ExpenseType.unknown)
+          i,
+    ];
+    final unknown = _rows
+        .where((r) => ExpenseType.parse(r.expenseType) == ExpenseType.unknown)
+        .toList();
     final readyCount = _rows.where((row) => row.willImport).length;
     final theme = Theme.of(context);
     final screenSize = MediaQuery.sizeOf(context);
     final isNarrow = screenSize.width < 700;
     final dialogHeight = screenSize.height * .85;
-    final dialogWidth = math.min(860.0, screenSize.width * .96);
+    final dialogWidth = math.min(1180.0, screenSize.width * .96);
 
     return Dialog(
       key: const ValueKey('statement-review-dialog'),
@@ -44,7 +99,7 @@ class _StatementReviewDialogState extends State<StatementReviewDialog> {
         vertical: 12,
       ),
       child: ConstrainedBox(
-        constraints: BoxConstraints(maxWidth: 860, maxHeight: dialogHeight),
+        constraints: BoxConstraints(maxWidth: 1180, maxHeight: dialogHeight),
         child: SizedBox(
           width: dialogWidth,
           height: dialogHeight,
@@ -67,7 +122,9 @@ class _StatementReviewDialogState extends State<StatementReviewDialog> {
                         children: [
                           Text(
                             'Review statement before import',
-                            style: theme.textTheme.titleLarge,
+                            style: isNarrow
+                                ? theme.textTheme.titleMedium
+                                : theme.textTheme.titleLarge,
                           ),
                           Text(
                             widget.fileName,
@@ -86,27 +143,128 @@ class _StatementReviewDialogState extends State<StatementReviewDialog> {
                 child: Align(
                   alignment: Alignment.centerLeft,
                   child: Text(
-                    '${_rows.length} expense(s) found. Review each category; '
-                    '${widget.preview.filteredCount} non-expense or unreadable '
-                    'row(s) were excluded.'
-                    '${widget.preview.duplicateCount > 0 ? ' ${widget.preview.duplicateCount} row(s) match transactions already in your sheet. Changed categories update the matched row; tick "Import anyway" to add another copy.' : ''}',
+                    widget.emailReview
+                        ? '${_rows.length} selected email expense(s). Review categories and Expense Types before approving. Possible duplicates need explicit review.'
+                        : '${_rows.length} expense(s) found. Review each category; '
+                              '${widget.preview.filteredCount} non-expense or unreadable '
+                              'row(s) were excluded.'
+                              '${widget.preview.duplicateCount > 0 ? ' ${widget.preview.duplicateCount} row(s) match transactions already in your sheet. Changed categories or Expense Types update the matched row; tick "Import anyway" to add another copy.' : ''}',
+                    maxLines: isNarrow ? 3 : null,
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ),
               ),
-              const SizedBox(height: 12),
-              const Divider(height: 1),
-              if (!isNarrow) _buildColumnHeaders(theme),
-              Expanded(
-                child: ListView.separated(
-                  padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
-                  itemCount: _rows.length,
-                  separatorBuilder: (_, _) => isNarrow
-                      ? const SizedBox(height: 8)
-                      : const Divider(height: 1),
-                  itemBuilder: (context, index) => isNarrow
-                      ? _buildMobileRow(index, theme)
-                      : _buildRow(index, theme),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                child: Column(
+                  children: [
+                    Row(
+                      children: [
+                        FilterChip(
+                          label: Text('Unknown (${unknown.length})'),
+                          selected: _unknownOnly,
+                          onSelected: (v) => setState(() => _unknownOnly = v),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            '${widget.currencySymbol}${unknown.fold<double>(0, (sum, r) => sum + r.amount).toStringAsFixed(2)} needs review',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
+                    ),
+                    Row(
+                      children: [
+                        IconButton(
+                          tooltip: 'Select visible',
+                          onPressed: () =>
+                              setState(() => _selected.addAll(visible)),
+                          icon: const Icon(Icons.select_all),
+                        ),
+                        IconButton(
+                          tooltip: 'Clear selection',
+                          onPressed: () => setState(_selected.clear),
+                          icon: const Icon(Icons.deselect),
+                        ),
+                        Expanded(
+                          child: DropdownButton<String>(
+                            key: const ValueKey('statement-bulk-type'),
+                            isExpanded: true,
+                            hint: Text('Set type (${_selected.length})'),
+                            items: ExpenseType.values
+                                .map(
+                                  (t) => DropdownMenuItem(
+                                    value: t.sheetValue,
+                                    child: Text(
+                                      t.sheetValue,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                )
+                                .toList(),
+                            onChanged: _selected.isEmpty
+                                ? null
+                                : (value) {
+                                    if (value != null) {
+                                      setState(() {
+                                        for (final i in _selected) {
+                                          _rows[i] = _rows[i].withExpenseType(
+                                            value,
+                                          );
+                                        }
+                                        _selected.clear();
+                                      });
+                                    }
+                                  },
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
                 ),
+              ),
+              const SizedBox(height: 8),
+              const Divider(height: 1),
+              Expanded(
+                child: isNarrow
+                    ? ListView.separated(
+                        padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
+                        itemCount: visible.length,
+                        separatorBuilder: (_, _) => const SizedBox(height: 8),
+                        itemBuilder: (_, index) =>
+                            _buildMobileRow(visible[index], theme),
+                      )
+                    : LayoutBuilder(
+                        builder: (context, constraints) =>
+                            SingleChildScrollView(
+                              scrollDirection: Axis.horizontal,
+                              child: SizedBox(
+                                width: math.max(1020, constraints.maxWidth),
+                                child: Column(
+                                  children: [
+                                    _buildColumnHeaders(theme),
+                                    Expanded(
+                                      child: ListView.separated(
+                                        padding: const EdgeInsets.fromLTRB(
+                                          12,
+                                          4,
+                                          12,
+                                          8,
+                                        ),
+                                        itemCount: visible.length,
+                                        separatorBuilder: (_, _) =>
+                                            const Divider(height: 1),
+                                        itemBuilder: (_, index) =>
+                                            _buildRow(visible[index], theme),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                      ),
               ),
               const Divider(height: 1),
               Padding(
@@ -163,11 +321,14 @@ class _StatementReviewDialogState extends State<StatementReviewDialog> {
   }
 
   String _duplicateMessage(WorkerExpensePreview row) {
+    if (widget.emailReview || row.transactionId?.startsWith('email:') == true) {
+      return 'Check your Sheet first. Tick Import anyway only if this payment is absent or is a separate expense; otherwise exclude it from the email inbox.';
+    }
     final rowLabel = row.duplicateRow == null
         ? 'a matching row already in your sheet'
         : 'row ${row.duplicateRow} in your sheet';
-    if (row.categoryChanged) {
-      return 'Update the category in $rowLabel; tick to add another copy.';
+    if (row.categoryChanged || row.expenseTypeEdited) {
+      return 'Update the classification in $rowLabel; tick to add another copy.';
     }
     return 'Import anyway (matches $rowLabel)';
   }
@@ -180,7 +341,9 @@ class _StatementReviewDialogState extends State<StatementReviewDialog> {
               Navigator.of(context)
                   .pop(_rows.where((row) => row.willImport).toList()),
     icon: const Icon(Icons.upload_file_outlined),
-    label: const Text('Save Changes & Import'),
+    label: Text(
+      widget.emailReview ? 'Approve & add to Sheets' : 'Save & Import',
+    ),
   );
 
   Widget _buildMobileRow(int index, ThemeData theme) {
@@ -272,6 +435,7 @@ class _StatementReviewDialogState extends State<StatementReviewDialog> {
               },
             ),
           ),
+          _typeControls(index),
           if (row.userEdited)
             CheckboxListTile(
               dense: true,
@@ -337,6 +501,7 @@ class _StatementReviewDialogState extends State<StatementReviewDialog> {
       padding: const EdgeInsets.fromLTRB(20, 8, 20, 4),
       child: Row(
         children: [
+          const SizedBox(width: 40),
           SizedBox(width: 92, child: _columnLabel('Date', theme)),
           const SizedBox(width: 12),
           Expanded(child: _columnLabel('Description', theme)),
@@ -348,7 +513,9 @@ class _StatementReviewDialogState extends State<StatementReviewDialog> {
             ),
           ),
           const SizedBox(width: 14),
-          SizedBox(width: 200, child: _columnLabel('Category', theme)),
+          SizedBox(width: 190, child: _columnLabel('Category', theme)),
+          const SizedBox(width: 12),
+          SizedBox(width: 190, child: _columnLabel('Expense Type', theme)),
           const SizedBox(width: 40),
         ],
       ),
@@ -367,11 +534,23 @@ class _StatementReviewDialogState extends State<StatementReviewDialog> {
     final row = _rows[index];
     final duplicateColor = theme.colorScheme.errorContainer;
     return Container(
-      constraints: const BoxConstraints(minHeight: 44),
+      key: ValueKey('statement-review-row-$index'),
+      constraints: const BoxConstraints(minHeight: 48),
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
       color: row.duplicate ? duplicateColor.withValues(alpha: .28) : null,
       child: Row(
         children: [
+          SizedBox(
+            width: 40,
+            child: Checkbox(
+              key: ValueKey('statement-select-$index'),
+              value: _selected.contains(index),
+              visualDensity: VisualDensity.compact,
+              onChanged: (value) => setState(() {
+                value == true ? _selected.add(index) : _selected.remove(index);
+              }),
+            ),
+          ),
           SizedBox(
             width: 92,
             child: Text(
@@ -412,12 +591,15 @@ class _StatementReviewDialogState extends State<StatementReviewDialog> {
           ),
           const SizedBox(width: 14),
           SizedBox(
-            width: 200,
+            width: 190,
             child: Tooltip(
               message: row.categoryMatched
                   ? 'Automatically categorized. Select to change.'
                   : 'No keyword matched. Choose a category.',
               child: DropdownButton<String>(
+                key: ValueKey(
+                  'statement-review-category-$index-${row.category}',
+                ),
                 value: row.category,
                 isExpanded: true,
                 isDense: true,
@@ -447,6 +629,40 @@ class _StatementReviewDialogState extends State<StatementReviewDialog> {
                       categoryId: selected?.id,
                     );
                   });
+                },
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          SizedBox(
+            width: 190,
+            child: Tooltip(
+              message: 'Expense Type · ${row.expenseTypeSource}',
+              child: DropdownButton<String>(
+                key: ValueKey('statement-type-$index-${row.expenseType}'),
+                value: ExpenseType.parse(row.expenseType).sheetValue,
+                isExpanded: true,
+                isDense: true,
+                underline: const SizedBox.shrink(),
+                menuMaxHeight: 320,
+                items: ExpenseType.values
+                    .map(
+                      (type) => DropdownMenuItem(
+                        value: type.sheetValue,
+                        child: Text(
+                          type.sheetValue,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    )
+                    .toList(),
+                onChanged: (value) {
+                  if (value != null) {
+                    setState(
+                      () => _rows[index] = _rows[index].withExpenseType(value),
+                    );
+                  }
                 },
               ),
             ),

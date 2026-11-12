@@ -187,6 +187,7 @@ class SpendingReductionPlannerService {
     required Iterable<Transaction> transactions,
     required Iterable<FinancialBaselineMapping> lifestyleMappings,
     required Iterable<ExpenseCategory> categories,
+    FinancialBaselineAnalysis? baselineAnalysis,
   }) {
     final ledger = transactions.toList(growable: false);
     final mappings = lifestyleMappings.toList(growable: false);
@@ -199,14 +200,12 @@ class SpendingReductionPlannerService {
         ),
       for (final category in categories) category.id: category,
     };
-    final historyMonths = _baselineService
-        .summarize(transactions: ledger, mappings: mappings)
-        .monthCount;
+    final baseline =
+        baselineAnalysis ??
+        _baselineService.analyze(transactions: ledger, mappings: mappings);
+    final historyMonths = baseline.summary.monthCount;
     final divisor = historyMonths <= 0 ? 1 : historyMonths;
-    final matches = _baselineService.classify(
-      transactions: ledger,
-      mappings: mappings,
-    );
+    final matches = baseline.matches;
     final eligibleRows = <_EligibleReductionTransaction>[];
     final categoryAmounts = <String, double>{};
     final categoryCounts = <String, int>{};
@@ -227,10 +226,9 @@ class SpendingReductionPlannerService {
       final categoryPath = categoryId == null
           ? const <String>[]
           : _categoryPath(categoryId, categoryMap);
-      final normalizedMerchant = _normalizer
-          .normalize(transaction.description)
-          .trim()
-          .toLowerCase();
+      final normalizedMerchant = _baselineService.merchantKey(
+        transaction.description,
+      );
       final merchantKey = normalizedMerchant.isEmpty
           ? null
           : normalizedMerchant;
@@ -255,9 +253,10 @@ class SpendingReductionPlannerService {
         }
       }
       if (merchantKey != null) {
-        merchantNames[merchantKey] = _normalizer
-            .normalize(transaction.description)
-            .trim();
+        merchantNames.putIfAbsent(
+          merchantKey,
+          () => _normalizer.normalize(transaction.description).trim(),
+        );
         merchantAmounts.update(
           merchantKey,
           (amount) => amount + transaction.amount,

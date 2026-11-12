@@ -14,7 +14,12 @@ void main() {
         final client = MockClient((request) async {
           if (request.method == 'GET') {
             return http.Response(
-              jsonEncode({'status': 'ok', 'reviewPreview': true}),
+              jsonEncode({
+                'status': 'ok',
+                'reviewPreview': true,
+                'reviewedCategoryUpdates': true,
+                'expenseTypeReview': true,
+              }),
               200,
               headers: {'content-type': 'application/json'},
             );
@@ -114,20 +119,20 @@ void main() {
 
       expect(
         csv,
-        'Timestamp,Amount,Category,Description,Expense Type,Transaction ID'
+        'Timestamp,Amount,Category,Description,Expense Type,Transaction ID,Category ID'
         '\r\n2026-10-31,12.5,Food / Household,'
-        '"Market, ""Downtown""\nreceipt",Planned Occasional,expense-1',
+        '"Market, ""Downtown""\nreceipt",Planned Occasional,expense-1,',
       );
     });
 
     test('exports an empty ledger as a header-only CSV', () {
       expect(
         buildExpenseCsv(const []),
-        'Timestamp,Amount,Category,Description,Expense Type,Transaction ID',
+        'Timestamp,Amount,Category,Description,Expense Type,Transaction ID,Category ID',
       );
     });
 
-    test('tags internal transfer exports with the Transfers category', () {
+    test('preserves explicitly reviewed spending categories on transfer-like descriptions', () {
       final transactionCsv = buildExpenseCsv([
         Transaction(
           date: DateTime(2026, 10, 31),
@@ -149,8 +154,8 @@ void main() {
         ),
       ]);
 
-      expect(transactionCsv, contains('125.0,Transfers,'));
-      expect(reviewedCsv, contains('125.00,Transfers,'));
+      expect(transactionCsv, contains('125.0,Financial Obligations,'));
+      expect(reviewedCsv, contains('125.00,Housing / Bills,'));
     });
   });
 

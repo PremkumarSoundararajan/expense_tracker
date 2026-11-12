@@ -1,5 +1,6 @@
 import '../models/transaction.dart';
 import 'transaction_filter.dart';
+import 'budget_comparison.dart';
 import '../utils/transaction_period_format.dart';
 
 const suggestedBudgetBufferRate = 0.10;
@@ -51,8 +52,14 @@ class SuggestedBudget {
     required this.recurringItems,
     required this.miscItems,
     this.excludedItems = const [],
+    this.unknownCount = 0,
+    this.unknownAmount = 0,
+    this.historyCoveragePercent,
   });
 
+  final int unknownCount;
+  final double unknownAmount;
+  final double? historyCoveragePercent;
   final double amount;
   final int completedMonths;
   final double recurringTotal;
@@ -256,7 +263,23 @@ class SuggestedBudgetService {
         ((recurringTotal + miscAverage + buffer) * 100).round() / 100;
     if (amount <= 0) return null;
 
+    final historySpending = BudgetSpending.fromTransactions(
+      transactions.where(
+        (t) => !t.date.isBefore(windowStart) && t.date.isBefore(currentMonth),
+      ),
+    );
     return SuggestedBudget(
+      historyCoveragePercent: historySpending.classifiedPercent,
+      unknownCount: transactions
+          .where(
+            (t) =>
+                t.expenseType == ExpenseType.unknown &&
+                !isTransferTransaction(t) &&
+                !t.date.isBefore(windowStart) &&
+                t.date.isBefore(currentMonth),
+          )
+          .length,
+      unknownAmount: historySpending.unknown,
       amount: amount,
       completedMonths: completedMonths,
       recurringTotal: recurringTotal,

@@ -18,13 +18,35 @@ void main() {
         'ACH CREDIT',
         'CONTRIBUTION',
         'DISTRIBUTION',
-        'DIGITAL FEDERAL CREDIT UNION',
-        'PENNYMAC LOAN',
       ]) {
         expect(isInternalTransfer(description), isTrue, reason: description);
       }
     });
 
+    test(
+      'institution names and mortgage merchants alone are not transfers',
+      () {
+        expect(isInternalTransfer('DIGITAL FEDERAL CREDIT UNION'), isFalse);
+        expect(isInternalTransfer('PENNYMAC LOAN'), isFalse);
+        expect(
+          isInternalTransfer(
+            'DIGITAL FEDERAL CREDIT UNION CUSTOMER',
+            context: const UserTransferContext(ownNames: ['CUSTOMER']),
+          ),
+          isTrue,
+        );
+      },
+    );
+    test('explicit spending categories are preserved even with transfer-like descriptions', () {
+      final expense = Transaction(
+        date: DateTime(2026, 1, 1),
+        amount: 25,
+        category: 'Financial Obligations',
+        description: 'FID BKG SVC LLC DES:MONEYLINE',
+      );
+      expect(tagInternalTransfer(expense).category, 'Financial Obligations');
+      expect(isTransferTransaction(expense), isFalse);
+    });
     test('does not classify unrelated descriptions by partial word match', () {
       expect(isInternalTransfer('Wireless headphones'), isFalse);
       expect(isInternalTransfer('Grocery store'), isFalse);
@@ -36,7 +58,7 @@ void main() {
         final transaction = Transaction(
           date: DateTime(2025, 1, 1),
           amount: 125,
-          category: 'Financial Obligations',
+          category: 'Lifestyle / Misc',
           description: 'FID BKG SVC LLC DES:MONEYLINE',
           id: 'transaction-1',
           sheetRow: 8,

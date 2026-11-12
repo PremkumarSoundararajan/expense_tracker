@@ -7,6 +7,7 @@ import '../models/expense_category.dart';
 import '../models/financial_baseline.dart';
 import '../models/transaction.dart';
 import '../services/spending_reduction_planner_service.dart';
+import '../services/financial_baseline_service.dart';
 import '../utils/currency_format.dart';
 
 class SpendingReductionPlannerScreen extends StatefulWidget {
@@ -21,6 +22,7 @@ class SpendingReductionPlannerScreen extends StatefulWidget {
     this.historyComplete = false,
     this.hasUnsavedClassifications = false,
     this.targetMappings,
+    this.baselineAnalysis,
   });
 
   final List<Transaction> transactions;
@@ -32,6 +34,7 @@ class SpendingReductionPlannerScreen extends StatefulWidget {
   final bool historyComplete;
   final bool hasUnsavedClassifications;
   final List<FinancialBaselineMapping>? targetMappings;
+  final FinancialBaselineAnalysis? baselineAnalysis;
 
   @override
   State<SpendingReductionPlannerScreen> createState() =>
@@ -46,6 +49,7 @@ class _SpendingReductionPlannerScreenState
   late final SpendingReductionPlannerAnalysis _analysis;
   SpendingReductionView _view = SpendingReductionView.category;
   final Map<String, int> _targets = {};
+  SpendingReductionPlan? _cachedPlan;
 
   static const _percentages = [10, 25, 50, 75, 100];
 
@@ -56,6 +60,7 @@ class _SpendingReductionPlannerScreenState
       transactions: widget.transactions,
       lifestyleMappings: widget.lifestyleMappings,
       categories: widget.categories,
+      baselineAnalysis: widget.baselineAnalysis,
     );
   }
 
@@ -67,6 +72,7 @@ class _SpendingReductionPlannerScreenState
 
   void _setTarget(String key, int percentage) {
     setState(() {
+      _cachedPlan = null;
       if (percentage <= 0) {
         _targets.remove(key);
       } else {
@@ -75,7 +81,8 @@ class _SpendingReductionPlannerScreenState
     });
   }
 
-  SpendingReductionPlan get _plan => _analysis.calculate(_targets);
+  SpendingReductionPlan get _plan =>
+      _cachedPlan ??= _analysis.calculate(_targets);
 
   Future<void> _openTargets() async {
     final store = widget.targetStore;

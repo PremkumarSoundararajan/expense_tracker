@@ -51,6 +51,7 @@ class FinancialBaselineInsightsService {
     required Iterable<FinancialBaselineMapping> mappings,
     required DateTime now,
     String currencySymbol = r'$',
+    Iterable<FinancialBaselineMatch>? classifiedTransactions,
   }) {
     final currentMonth = DateTime(now.year, now.month);
     final firstMonth = DateTime(now.year, now.month - 6);
@@ -72,10 +73,12 @@ class FinancialBaselineInsightsService {
       },
     );
     final eligibleDates = <DateTime>[];
-    final matches = _baselineService.classify(
-      transactions: transactions,
-      mappings: mappings,
-    );
+    final matches =
+        classifiedTransactions ??
+        _baselineService.classify(
+          transactions: transactions,
+          mappings: mappings,
+        );
     for (final match in matches) {
       if (match.isIgnored) continue;
       final date = match.transaction.date;

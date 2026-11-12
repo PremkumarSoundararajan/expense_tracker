@@ -30,7 +30,10 @@ import 'services/google_drive_permission_service.dart';
 import 'services/google_sign_in_configuration.dart';
 import 'services/google_sheets_service.dart';
 import 'services/local_transaction_store.dart';
+import 'services/merchant_classification_store.dart';
+import 'widgets/merchant_baseline_panel.dart';
 import 'services/monthly_rollover_service.dart';
+import 'services/budget_comparison.dart';
 import 'services/spending_insights_service.dart';
 import 'services/statement_file_reader.dart';
 import 'services/suggested_budget_service.dart';
@@ -42,6 +45,11 @@ import 'widgets/daily_reminder_settings_dialog.dart';
 import 'widgets/financial_baseline_screen.dart';
 import 'widgets/favourite_spending_spots_widget.dart';
 import 'widgets/month_selector.dart';
+import 'widgets/pocket_ledger_web_access.dart';
+import 'widgets/email_capture_screen.dart';
+import 'widgets/feedback_dialog.dart';
+import 'services/email_capture_service.dart';
+import 'services/merchant_normalizer.dart' as merchant_names;
 import 'widgets/monthly_budget_card.dart';
 import 'widgets/monthly_budget_target_dialog.dart';
 import 'widgets/spending_summary_widget.dart';
@@ -338,7 +346,8 @@ class _DashboardScreenState extends State<DashboardScreen>
   String? _selectedCategoryId;
   List<ExpenseCategory> _expenseCategories = [];
   List<ExpenseCategoryMapping> _categoryMappings = [];
-  ExpenseType _selectedExpenseType = ExpenseType.regular;
+  ExpenseType _selectedExpenseType = ExpenseType.unknown;
+  bool _manualCategoryEdited = false;
   DateTime _selectedExpenseDate = DateUtils.dateOnly(DateTime.now());
 
   bool _isSaving = false;
@@ -362,6 +371,8 @@ class _DashboardScreenState extends State<DashboardScreen>
   String? _spreadsheetId;
   String? _workerSpreadsheetId;
   List<Transaction> _transactions = [];
+  late final MerchantClassificationStore _merchantStore =
+      MerchantClassificationStore(widget.account.email);
   List<FinancialBaselineMapping> _baselineMappings = [];
   int _selectedTab = 0;
   Timer? _calendarRefreshTimer;
@@ -419,6 +430,11 @@ class _DashboardScreenState extends State<DashboardScreen>
     _spendingTargetStore = SpendingTargetStore(
       accountKey: widget.account.email,
     );
+    _dailyReminderService.onEmailReview = () {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) setState(() => _selectedTab = 1);
+      });
+    };
     _loadCurrencyAndInitDrive();
   }
 
@@ -488,6 +504,7 @@ class _DashboardScreenState extends State<DashboardScreen>
     _calendarRefreshTimer?.cancel();
     _amountController.dispose();
     _descController.dispose();
+    _dailyReminderService.onEmailReview = null;
     _workerCsvSyncService.close();
     super.dispose();
   }
@@ -506,6 +523,7 @@ class _DashboardScreenState extends State<DashboardScreen>
       final workerSpreadsheetId = prefs.getString(
         _workerSpreadsheetPreferenceKey,
       );
+      await _merchantStore.load();
       final cachedTransactions = await _localTransactionStore.loadCached();
       final baselineMappings = await _financialBaselineStore.loadMappings();
       await _spendingTargetStore.load();
@@ -533,6 +551,7 @@ class _DashboardScreenState extends State<DashboardScreen>
           );
           _workerSpreadsheetId = workerSpreadsheetId;
           _transactions = cachedTransactions
+              .map(_merchantStore.index.apply)
               .map(tagInternalTransfer)
               .toList(growable: false);
           _baselineMappings = baselineMappings;
@@ -542,6 +561,22 @@ class _DashboardScreenState extends State<DashboardScreen>
         unawaited(_loadHeroMonthBudget());
       }
 
+      _emailReminderFrequency =
+          prefs.getString('${_emailReviewPreferenceKey}_frequency') ?? 'off';
+      _emailReminderTime = TimeOfDay(
+        hour: prefs.getInt('${_emailReviewPreferenceKey}_hour') ?? 20,
+        minute: prefs.getInt('${_emailReviewPreferenceKey}_minute') ?? 30,
+      );
+      if (!kIsWeb) {
+        try {
+          await _dailyReminderService.scheduleEmail(
+            _emailReminderFrequency,
+            _emailReminderTime,
+          );
+        } catch (_) {
+          /* Keep the scan feature usable if notifications are unavailable. */
+        }
+      }
       if (reminderEnabled && !kIsWeb) {
         try {
           await _dailyReminderService.scheduleDaily(
@@ -606,12 +641,14 @@ class _DashboardScreenState extends State<DashboardScreen>
   }
 
   Map<String, Object?> get _categoryConfiguration => {
-    'categories': _expenseCategories.map((c) => c.toJson()).toList(),
+    'categories': withHomeMaintenance(_expenseCategories)
+        .map((c) => c.toJson())
+        .toList(),
     'mappings': _categoryMappings.map((m) => m.toJson()).toList(),
   };
 
   String? _categoryIdForName(String name) {
-    final existing = _expenseCategories
+    final existing = withHomeMaintenance(_expenseCategories)
         .where((c) => c.name.toLowerCase() == name.toLowerCase())
         .firstOrNull;
     if (existing != null) return existing.id;
@@ -646,7 +683,7 @@ class _DashboardScreenState extends State<DashboardScreen>
         );
       }
     }
-    return active;
+    return withHomeMaintenance(active);
   }
 
   Future<void> _saveExpenseCategories(List<ExpenseCategory> categories) async {
@@ -676,6 +713,16 @@ class _DashboardScreenState extends State<DashboardScreen>
       }
       return transaction;
     }).toList();
+    final masterRenames = <Map<String, dynamic>>[];
+    for (final record in _merchantStore.records.values) {
+      final category = newById[record['categoryId']];
+      if (category != null &&
+          !category.archived &&
+          record['category'] != category.name) {
+        masterRenames.add({...record, 'category': category.name});
+      }
+    }
+    if (masterRenames.isNotEmpty) await _merchantStore.save(masterRenames);
     await _expenseCategoryStore.save(
       categories: categories,
       mappings: _categoryMappings,
@@ -757,7 +804,7 @@ class _DashboardScreenState extends State<DashboardScreen>
     await Navigator.of(context).push<void>(
       MaterialPageRoute(
         builder: (_) => ExpenseCategoryManagementScreen(
-          categories: _expenseCategories,
+          categories: withHomeMaintenance(_expenseCategories),
           onChanged: (categories) =>
               unawaited(_saveExpenseCategories(categories)),
         ),
@@ -976,10 +1023,24 @@ class _DashboardScreenState extends State<DashboardScreen>
           mergedTransactions[index] = localTransaction;
         }
       }
-      await _localTransactionStore.saveCached(mergedTransactions);
+      try {
+        await _merchantStore.synchronize(
+          sheetsApi,
+          _spreadsheetId!,
+          refreshedTransactions,
+        );
+      } catch (error) {
+        _showMessage(
+          'Merchant classifications saved locally; sync will retry: $error',
+        );
+      }
+      final effectiveTransactions = mergedTransactions
+          .map(_merchantStore.index.apply)
+          .toList(growable: false);
+      await _localTransactionStore.saveCached(effectiveTransactions);
       if (!mounted) return;
       setState(() {
-        _transactions = mergedTransactions;
+        _transactions = effectiveTransactions;
         _targetHistoryComplete = true;
       });
       if (_spendingTargetStore.hasPending) {
@@ -1065,6 +1126,8 @@ class _DashboardScreenState extends State<DashboardScreen>
             category: taggedTransaction.category,
             description: taggedTransaction.description,
             expenseType: taggedTransaction.expenseType,
+            originalExpenseType: taggedTransaction.originalExpenseType,
+            baselineGroup: taggedTransaction.baselineGroup,
             id: id,
             sheetRow: index + 2,
             categoryId: categoryId,
@@ -1268,7 +1331,83 @@ class _DashboardScreenState extends State<DashboardScreen>
     );
   }
 
-  Future<void> _openFinancialBaseline() async {
+  bool _showRemainingClassification = false;
+  int _classificationEntry = 0;
+  void _reviewRemainingClassification() {
+    final dashboard = ModalRoute.of(context);
+    if (dashboard != null) {
+      Navigator.of(context).popUntil((route) => route == dashboard);
+    }
+    setState(() {
+      _selectedTab = 2;
+      _showRemainingClassification = true;
+      _classificationEntry++;
+    });
+  }
+
+  Widget _merchantPanel() => MerchantBaselinePanel(
+    key: ValueKey('merchant-panel-$_classificationEntry'),
+    showRemainingInitially: _showRemainingClassification,
+    reviewUnknownInitially: _showRemainingClassification,
+    transactions: _transactions,
+    categories: _activeExpenseCategories,
+    legacyMappings: _baselineMappings,
+    store: _merchantStore,
+    currencySymbol: _currency,
+    historyComplete: _targetHistoryComplete,
+    onSaved: _saveMerchantClassifications,
+  );
+
+  Future<String> _saveMerchantClassifications(
+    List<Map<String, dynamic>> changes,
+  ) async {
+    await _merchantStore.save(changes);
+    final updated = _transactions
+        .map(_merchantStore.index.apply)
+        .toList(growable: false);
+    await _localTransactionStore.saveCached(updated);
+    if (mounted) setState(() => _transactions = updated);
+    try {
+      final client = await _googleSignIn.authenticatedClient();
+      if (client == null || _spreadsheetId == null)
+        return 'Saved on this device. Google Sheets sync is pending.';
+      final api = sheets.SheetsApi(client);
+      final raw = await _readSheetTransactions(api);
+      final status = await _merchantStore.synchronize(
+        api,
+        _spreadsheetId!,
+        raw,
+      );
+      final effective = raw
+          .map(_merchantStore.index.apply)
+          .toList(growable: false);
+      await _localTransactionStore.saveCached(effective);
+      if (mounted)
+        setState(() {
+          _transactions = effective;
+          _targetHistoryComplete = true;
+        });
+      return status;
+    } catch (e) {
+      return 'Saved on this device. Google Sheets sync will retry: $e';
+    }
+  }
+
+  void _openInsight(String title, Widget child) {
+    Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (_) => Scaffold(
+          appBar: AppBar(title: Text(title)),
+          body: SingleChildScrollView(
+            padding: const EdgeInsets.all(16),
+            child: child,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openFinancialBaselineDetails() async {
     unawaited(_saveSpendingTargets());
     final draft = await _financialBaselineStore.loadDraft();
     if (!mounted) return;
@@ -1284,6 +1423,7 @@ class _DashboardScreenState extends State<DashboardScreen>
           onTargetsSaved: _saveSpendingTargets,
           historyComplete: _targetHistoryComplete,
           initialDraft: draft,
+          insightsOnly: true,
           onDraftChanged: _financialBaselineStore.saveDraft,
           onDraftCleared: _financialBaselineStore.clearDraft,
         ),
@@ -1308,7 +1448,7 @@ class _DashboardScreenState extends State<DashboardScreen>
             taggedTransaction.amount.toString(),
             taggedTransaction.category,
             taggedTransaction.description,
-            taggedTransaction.expenseType.sheetValue,
+            taggedTransaction.expenseTypeStorageValue,
             taggedTransaction.id ?? '',
             taggedTransaction.categoryId ??
                 _categoryIdForName(taggedTransaction.category),
@@ -1333,7 +1473,7 @@ class _DashboardScreenState extends State<DashboardScreen>
             transaction.amount.toString(),
             transaction.category,
             transaction.description,
-            transaction.expenseType.sheetValue,
+            transaction.expenseTypeStorageValue,
             transaction.id ?? '',
             transaction.categoryId ?? _categoryIdForName(transaction.category),
           ];
@@ -1348,15 +1488,25 @@ class _DashboardScreenState extends State<DashboardScreen>
     );
   }
 
+  Transaction _classifyManual(Transaction t) {
+    final effective = _merchantStore.index.apply(t);
+    return _manualCategoryEdited
+        ? effective.copyWith(category: t.category, categoryId: t.categoryId)
+        : effective;
+  }
+
   List<Widget> _manualTargetAwareness() {
     final amount = double.tryParse(_amountController.text);
     if (amount == null || !amount.isFinite || amount <= 0) return [];
-    final proposed = Transaction(
-      date: _selectedExpenseDate,
-      amount: amount,
-      category: _selectedCategory,
-      categoryId: _selectedCategoryId ?? _categoryIdForName(_selectedCategory),
-      description: _descController.text.trim(),
+    final proposed = _classifyManual(
+      Transaction(
+        date: _selectedExpenseDate,
+        amount: amount,
+        category: _selectedCategory,
+        categoryId:
+            _selectedCategoryId ?? _categoryIdForName(_selectedCategory),
+        description: _descController.text.trim(),
+      ),
     );
     final awareness = SpendingTargetService().preview(
       proposed: proposed,
@@ -1453,21 +1603,35 @@ class _DashboardScreenState extends State<DashboardScreen>
       final description = _descController.text.trim().isEmpty
           ? 'General'
           : _descController.text.trim();
-      final transaction = Transaction(
-        date: _selectedExpenseDate,
-        amount: amount,
-        category: _selectedCategory,
-        description: description,
-        expenseType: _selectedExpenseType,
-        id: Transaction.createId(),
-        categoryId:
-            _selectedCategoryId ?? _categoryIdForName(_selectedCategory),
+      final transaction = _classifyManual(
+        Transaction(
+          date: _selectedExpenseDate,
+          amount: amount,
+          category: _selectedCategory,
+          description: description,
+          expenseType: _selectedExpenseType,
+          id: Transaction.createId(),
+          categoryId:
+              _selectedCategoryId ?? _categoryIdForName(_selectedCategory),
+        ),
       );
+      if (_manualCategoryEdited) {
+        await _merchantStore.save([
+          {
+            'id': 't:${transaction.id}',
+            'kind': 'transaction',
+            'transactionId': transaction.id,
+            'category': transaction.category,
+            'categoryId': transaction.categoryId,
+          },
+        ]);
+      }
       await _localTransactionStore.upsertPending(transaction);
       isLocallyQueued = true;
       final updatedTransactions = [..._transactions, transaction];
       if (mounted) setState(() => _transactions = updatedTransactions);
       await _localTransactionStore.saveCached(updatedTransactions);
+      _manualCategoryEdited = false;
       _amountController.clear();
       _descController.clear();
       if (!mounted) return;
@@ -1741,13 +1905,39 @@ class _DashboardScreenState extends State<DashboardScreen>
 
       setState(() => _workerSyncStatus = 'Analyzing statement...');
       debugPrint('[import] calling worker previewCsv');
-      final preview = await _workerCsvSyncService.previewCsv(
+      final workerPreview = await _workerCsvSyncService.previewCsv(
+        requireMerchantReview: true,
         accessToken: accessToken,
         spreadsheetId: spreadsheetId,
         csv: csv,
         categoryConfig: _categoryConfiguration,
       );
       if (!mounted) return;
+      final importIndex = _merchantStore.index;
+      final preview = WorkerCsvPreview(
+        spreadsheetId: workerPreview.spreadsheetId,
+        spreadsheetCreated: workerPreview.spreadsheetCreated,
+        filteredCount: workerPreview.filteredCount,
+        duplicateCount: workerPreview.duplicateCount,
+        rows: workerPreview.rows.map((row) {
+          final effective = importIndex.apply(
+            Transaction(
+              date: DateTime.parse(row.date),
+              amount: row.amount,
+              category: row.category,
+              expenseType: ExpenseType.parse(row.expenseType),
+              categoryId: row.categoryId,
+              description: row.description,
+              id: row.transactionId,
+            ),
+          );
+          return row.withMerchantCategory(
+            effective.category,
+            effective.categoryId,
+            expenseTypeValue: effective.expenseType.sheetValue,
+          );
+        }).toList(),
+      );
       final targetSpreadsheetId = preview.spreadsheetId;
       final spreadsheetCreated = preview.spreadsheetCreated;
       await _rememberWorkerSpreadsheetId(targetSpreadsheetId);
@@ -1805,7 +1995,9 @@ class _DashboardScreenState extends State<DashboardScreen>
           final monitorClient = await _googleSignIn.authenticatedClient();
           if (monitorClient != null) {
             targetApi = sheets.SheetsApi(monitorClient);
-            beforeTargetImport = await _readSheetTransactions(targetApi);
+            beforeTargetImport = (await _readSheetTransactions(targetApi))
+                .map(_merchantStore.index.apply)
+                .toList();
           }
         } catch (_) {
           /* Import remains available if monitoring cannot refresh. */
@@ -1833,7 +2025,7 @@ class _DashboardScreenState extends State<DashboardScreen>
         if (importedCount > 0)
           'Imported $importedCount transaction(s) from ${file.name}.',
         if (updatedCount > 0)
-          'Updated the category on $updatedCount existing transaction(s).',
+          'Updated classifications on $updatedCount existing transaction(s).',
         if (importedCount == 0 && updatedCount == 0)
           'No new or changed transactions were imported from ${file.name}.',
       ].join(' ');
@@ -1847,7 +2039,9 @@ class _DashboardScreenState extends State<DashboardScreen>
         if (beforeTargetImport != null &&
             (importedCount > 0 || updatedCount > 0)) {
           try {
-            final committed = await _readSheetTransactions(targetApi!);
+            final committed = (await _readSheetTransactions(targetApi!))
+                .map(_merchantStore.index.apply)
+                .toList();
             String key(DateTime date, double amount, String description) =>
                 '${date.year}-${date.month}-${date.day}|${amount.toStringAsFixed(2)}|${description.trim().toLowerCase()}';
             final reviewedKeys = {
@@ -1912,7 +2106,15 @@ class _DashboardScreenState extends State<DashboardScreen>
       builder: (_) => MonthlyBudgetTargetDialog(
         currencySymbol: _currency,
         initialTarget: _monthlyTarget,
+        onReviewUnclassified: _reviewRemainingClassification,
         suggestion: suggestion,
+        unknownCount: _transactions
+            .where(
+              (t) =>
+                  t.expenseType == ExpenseType.unknown &&
+                  !isTransferTransaction(t),
+            )
+            .length,
       ),
     );
 
@@ -1928,6 +2130,7 @@ class _DashboardScreenState extends State<DashboardScreen>
     final applied = await showSuggestedBudgetSheet(
       context: context,
       suggestion: suggestion,
+      onReviewUnclassified: _reviewRemainingClassification,
       currencySymbol: _currency,
     );
     if (applied == null || !mounted) return;
@@ -1941,6 +2144,174 @@ class _DashboardScreenState extends State<DashboardScreen>
     } catch (error) {
       _showMessage('Could not save monthly target: $error');
     }
+  }
+
+  bool _emailScreenOpen = false;
+  String _emailReminderFrequency = 'off';
+  TimeOfDay _emailReminderTime = const TimeOfDay(hour: 20, minute: 30);
+  String get _emailReviewPreferenceKey =>
+      'email_review_reminder_' + widget.account.email.toLowerCase();
+  EmailCaptureService _emailService() => EmailCaptureService(
+    accessToken: () async {
+      final authentication = await widget.account.authentication;
+      final token = authentication.accessToken;
+      if (token == null || token.isEmpty)
+        throw StateError('Sign in again to use email capture.');
+      return token;
+    },
+  );
+  Future<void> _setEmailReminder(String frequency) async {
+    if (kIsWeb) return;
+    if (frequency != 'off' &&
+        !await _dailyReminderService.requestPermission()) {
+      throw StateError('Allow notifications to enable email scan reminders.');
+    }
+    await _dailyReminderService.scheduleEmail(frequency, _emailReminderTime);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('${_emailReviewPreferenceKey}_frequency', frequency);
+    if (mounted) setState(() => _emailReminderFrequency = frequency);
+  }
+
+  Future<void> _changeEmailReminderTime() async {
+    final time = await showTimePicker(
+      context: context,
+      initialTime: _emailReminderTime,
+    );
+    if (time == null) return;
+    await _dailyReminderService.scheduleEmail(_emailReminderFrequency, time);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt('${_emailReviewPreferenceKey}_hour', time.hour);
+    await prefs.setInt('${_emailReviewPreferenceKey}_minute', time.minute);
+    if (mounted) setState(() => _emailReminderTime = time);
+  }
+
+  Future<void> _openEmailCapture({bool settingsMode = false}) async {
+    if (_emailScreenOpen || !mounted) return;
+    _emailScreenOpen = true;
+    final service = _emailService();
+    try {
+      await Navigator.of(context).push<void>(
+        MaterialPageRoute(
+          builder: (_) => EmailCaptureScreen(
+            service: service,
+            settingsMode: settingsMode,
+            categories: _activeExpenseCategories,
+            prepareCandidate: _prepareEmailCandidate,
+            reminderTime: () => _emailReminderTime,
+            changeReminderTime: _changeEmailReminderTime,
+            reminderFrequency: () => _emailReminderFrequency,
+            changeReminderFrequency: _setEmailReminder,
+            openSettings: () async {
+              Navigator.of(context).pop();
+              if (mounted) setState(() => _selectedTab = 3);
+            },
+            initialCurrency: _currency == '₹'
+                ? 'INR'
+                : _currency == '€'
+                ? 'EUR'
+                : _currency == '£'
+                ? 'GBP'
+                : _currency == 'RM'
+                ? 'MYR'
+                : 'USD',
+            onReview: (candidates, currency) =>
+                _reviewEmailExpenses(service, candidates, currency),
+          ),
+        ),
+      );
+    } finally {
+      _emailScreenOpen = false;
+    }
+  }
+
+  EmailExpenseCandidate _prepareEmailCandidate(
+    EmailExpenseCandidate candidate,
+  ) {
+    final raw = Transaction(
+      id: candidate.id,
+      date: DateTime.tryParse(candidate.date) ?? DateTime.now(),
+      amount: candidate.amount,
+      category: 'Uncategorized',
+      description: candidate.merchant,
+    );
+    final effective = _merchantStore.index.apply(raw);
+    final fingerprint = merchant_names
+        .normalizeMerchant(candidate.merchant)
+        .replaceAll(' ', '');
+    final duplicate =
+        candidate.importUncertain ||
+        _transactions.any((t) {
+          final other = merchant_names
+              .normalizeMerchant(t.description)
+              .replaceAll(' ', '');
+          return !isTransferTransaction(t) &&
+              t.dateOnlyIsoString == candidate.date &&
+              (t.amount - candidate.amount).abs() < .005 &&
+              (t.id == candidate.id ||
+                  (fingerprint.isNotEmpty &&
+                      other.isNotEmpty &&
+                      (fingerprint == other ||
+                          (fingerprint.length >= 4 &&
+                              other.length >= 4 &&
+                              (fingerprint.startsWith(other) ||
+                                  other.startsWith(fingerprint))))));
+        });
+    if (candidate.classificationEdited)
+      return candidate.classified(possibleDuplicate: duplicate, edited: false);
+    final group = effective.baselineGroup;
+    return candidate.classified(
+      category: effective.category,
+      categoryId: effective.categoryId,
+      expenseType: effective.expenseType.sheetValue,
+      essentiality:
+          ['Essential', 'Potentially Flexible', 'Unclassified'].contains(group)
+          ? group
+          : 'Unclassified',
+      possibleDuplicate: duplicate,
+      edited: false,
+    );
+  }
+
+  Future<String> _reviewEmailExpenses(
+    EmailCaptureService service,
+    List<EmailExpenseCandidate> candidates,
+    String currency,
+  ) async {
+    if (candidates.isEmpty || candidates.length > 50)
+      throw StateError('Choose 1–50 expenses to approve.');
+    if (candidates.any((item) => item.currency != currency))
+      throw StateError(
+        'Review one currency at a time. No conversion is performed.',
+      );
+    final result = await service.request(
+      'approve',
+      data: {
+        'spreadsheetId': await _getTargetSpreadsheetId(),
+        'currency': currency,
+        'items': [
+          for (final item in candidates)
+            {
+              'id': item.id,
+              'merchant': item.merchant,
+              'amount': item.amount,
+              'date': item.date,
+              'currency': item.currency,
+              'category': item.category,
+              'categoryId': item.categoryId,
+              'expenseType': item.expenseType,
+              'group': item.essentiality,
+              'importAnyway': item.importAnyway,
+              'manualReviewConfirmed': item.manualReviewConfirmed,
+            },
+        ],
+      },
+    );
+    await _fetchData();
+    final duplicates = (result['duplicates'] as List? ?? []).length;
+    return '${result['added'] ?? 0} expenses added; ${result['alreadyAdded'] ?? 0} already present.' +
+        (duplicates == 0
+            ? ''
+            : ' $duplicates possible duplicates remain. Check your Sheet before choosing Import anyway.');
   }
 
   Future<void> _showDailyReminderSettings() async {
@@ -2030,16 +2401,98 @@ class _DashboardScreenState extends State<DashboardScreen>
     return countTransactionsOnDate(_transactions, now ?? DateTime.now());
   }
 
+  Future<void> _reviewMonthUnclassified() async {
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, refresh) {
+          final remaining =
+              _transactions
+                  .where(
+                    (t) =>
+                        t.date.year == _heroMonth.year &&
+                        t.date.month == _heroMonth.month &&
+                        !isTransferTransaction(t) &&
+                        t.expenseType == ExpenseType.unknown,
+                  )
+                  .toList()
+                ..sort((a, b) => b.amount.compareTo(a.amount));
+          return AlertDialog(
+            title: const Text('Review unclassified expenses'),
+            content: SizedBox(
+              width: 600,
+              height: 400,
+              child: remaining.isEmpty
+                  ? const Center(
+                      child: Text('All expense types are classified.'),
+                    )
+                  : ListView.builder(
+                      itemCount: remaining.length,
+                      itemBuilder: (_, i) {
+                        final t = remaining[i];
+                        return ListTile(
+                          title: Text(
+                            t.description,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          subtitle: Text(
+                            '${_formatDate(t.date)} · ${formatFullCurrency(t.amount, _currency)}',
+                          ),
+                          trailing: const Icon(Icons.edit_outlined),
+                          onTap: () async {
+                            await _editTransaction(t);
+                            if (dialogContext.mounted) refresh(() {});
+                          },
+                        );
+                      },
+                    ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: const Text('Done'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
   Future<void> _editTransaction(Transaction selected) async {
     final editedTransaction = await showDialog<Transaction>(
       context: context,
       builder: (context) => _ExpenseEditDialog(transaction: selected),
     );
     if (editedTransaction == null || !mounted) return;
-    final edited = tagInternalTransfer(editedTransaction);
+    var edited = tagInternalTransfer(
+      editedTransaction.copyWith(
+        categoryId: _categoryIdForName(editedTransaction.category),
+      ),
+    );
 
     var isLocallyQueued = false;
     try {
+      if (edited.id != null &&
+          (edited.category != selected.category ||
+              edited.categoryId != selected.categoryId ||
+              edited.expenseType != selected.expenseType)) {
+        final old = _merchantStore.records['t:${edited.id}'];
+        await _merchantStore.save([
+          {
+            ...?(old?['deleted'] == true ? null : old),
+            'id': 't:${edited.id}',
+            'kind': 'transaction',
+            'transactionId': edited.id,
+            'expenseType': edited.expenseType.sheetValue,
+            'category': edited.category,
+            'categoryId': edited.categoryId,
+            'deleted': false,
+          },
+        ]);
+      }
+      edited = _merchantStore.index.apply(edited);
       await _localTransactionStore.upsertPending(edited);
       isLocallyQueued = true;
       final updated = _transactions
@@ -2187,7 +2640,9 @@ class _DashboardScreenState extends State<DashboardScreen>
       (transaction) => transaction.expenseType == ExpenseType.regular,
     );
     final occasionalTransactions = periodTransactions.where(
-      (transaction) => transaction.expenseType != ExpenseType.regular,
+      (transaction) =>
+          transaction.expenseType == ExpenseType.plannedOccasional ||
+          transaction.expenseType == ExpenseType.unexpectedOccasional,
     );
     final regularTotal = regularTransactions.fold<double>(
       0,
@@ -2267,6 +2722,27 @@ class _DashboardScreenState extends State<DashboardScreen>
                             regularTransactions.toList(),
                           ),
                         ),
+                        if (periodTransactions.any(
+                          (t) => t.expenseType == ExpenseType.unknown,
+                        ))
+                          _BreakdownMetricChip(
+                            label: 'Unknown',
+                            amount: periodTransactions
+                                .where(
+                                  (t) => t.expenseType == ExpenseType.unknown,
+                                )
+                                .fold<double>(0, (sum, t) => sum + t.amount),
+                            currencySymbol: _currency,
+                            onTap: () => _showFilteredCategoryBreakdown(
+                              title,
+                              'Unknown',
+                              periodTransactions
+                                  .where(
+                                    (t) => t.expenseType == ExpenseType.unknown,
+                                  )
+                                  .toList(),
+                            ),
+                          ),
                         _BreakdownMetricChip(
                           label: 'Occasional',
                           amount: occasionalTotal,
@@ -2582,28 +3058,35 @@ class _DashboardScreenState extends State<DashboardScreen>
     final todayExpenseCount = _selectedTab == 0
         ? _calculateTodayExpenseCount()
         : 0;
-    final monthActualSpend = _selectedTab == 0
-        ? _calculateTotal('month', targetMonth: _heroMonth)
-        : 0.0;
-    final monthRegularSpend = _selectedTab == 0
-        ? _calculateTotal(
-            'month',
-            expenseType: ExpenseType.regular,
-            targetMonth: _heroMonth,
-          )
-        : 0.0;
+    final monthSpending = BudgetSpending.fromTransactions(
+      _transactions.where(
+        (t) =>
+            t.date.year == _heroMonth.year && t.date.month == _heroMonth.month,
+      ),
+    );
     final monthBudget = isSameMonth(_heroMonth, DateTime.now())
         ? _monthlyTarget
         : _heroMonthBudget;
-    final budgetUsedPercent = monthBudget != null && monthBudget > 0
-        ? (monthRegularSpend / monthBudget * 100).round()
-        : null;
+    final monthOutcome = monthBudget == null
+        ? null
+        : monthSpending.outcome(monthBudget);
+    final monthSubtitle = monthBudget == null
+        ? 'Actual spending'
+        : monthOutcome == BudgetOutcome.over
+        ? 'Over budget'
+        : monthOutcome == BudgetOutcome.exact
+        ? 'Exactly on budget'
+        : 'Within budget';
 
     // Responsive layout: one column on phones / narrow windows, two columns
     // (dashboard + trends | add-expense form) on wide web or desktop windows.
     final screenWidth = MediaQuery.sizeOf(context).width;
     final isWide = screenWidth >= 960;
-    final maxContentWidth = isWide ? 880.0 : 640.0;
+    final maxContentWidth = _selectedTab == 2 && isWide
+        ? 1240.0
+        : isWide
+        ? 880.0
+        : 640.0;
 
     final dashboardWidgets = _selectedTab != 0
         ? <Widget>[]
@@ -2638,7 +3121,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        formatWholeCurrency(monthActualSpend, _currency),
+                        formatWholeCurrency(monthSpending.total, _currency),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: Theme.of(context).textTheme.headlineMedium
@@ -2650,8 +3133,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                     ],
                   ),
                   subtitle: Text(
-                    '${monthBudget == null ? 'Actual spending' : '${formatWholeCurrency(monthBudget - monthRegularSpend, _currency)} budget remaining'}'
-                    '${budgetUsedPercent == null ? '' : ' · $budgetUsedPercent% used'}',
+                    monthSubtitle,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: Theme.of(context).textTheme.bodySmall,
@@ -2659,6 +3141,9 @@ class _DashboardScreenState extends State<DashboardScreen>
                   childrenPadding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
                   children: [
                     MonthlyBudgetCard(
+                      spending: monthSpending,
+
+                      onReviewUnclassified: _reviewMonthUnclassified,
                       currentSpent: _calculateTotal(
                         'month',
                         targetMonth: _heroMonth,
@@ -2699,48 +3184,54 @@ class _DashboardScreenState extends State<DashboardScreen>
               ),
             ),
             SizedBox(height: isWide ? 10 : 8),
-            if (isSameMonth(_heroMonth, DateTime.now()))
-              Row(
-                children: [
-                  Expanded(
-                    child: GestureDetector(
-                      onTap: () => _showCategoryBreakdown('Today', 'today'),
-                      child: SizedBox(
-                        height: 116,
-                        child: _SummaryCard(
-                          title: 'TODAY',
-                          amount: formatWholeCurrency(
-                            _calculateTotal('today'),
-                            _currency,
-                          ),
-                          subtitle: formatExpenseCount(todayExpenseCount),
-                          icon: Icons.calendar_today,
-                          matchPanels: isWide,
+            Row(
+              children: [
+                Expanded(
+                  child: GestureDetector(
+                    onTap: () => _showCategoryBreakdown('Today', 'today'),
+                    child: SizedBox(
+                      height: 116,
+                      child: _SummaryCard(
+                        title: 'TODAY',
+                        amount: formatWholeCurrency(
+                          _calculateTotal('today'),
+                          _currency,
                         ),
+                        subtitle: formatExpenseCount(todayExpenseCount),
+                        icon: Icons.calendar_today,
+                        matchPanels: isWide,
                       ),
                     ),
                   ),
-                  SizedBox(width: isWide ? 16 : 12),
-                  Expanded(
-                    child: GestureDetector(
-                      onTap: () => _showCategoryBreakdown('This Year', 'year'),
-                      child: SizedBox(
-                        height: 116,
-                        child: _SummaryCard(
-                          title: 'THIS YEAR',
-                          amount: formatWholeCurrency(
-                            _calculateTotal('year'),
-                            _currency,
+                ),
+                SizedBox(width: isWide ? 16 : 12),
+                Expanded(
+                  child: GestureDetector(
+                    onTap: () => _showCategoryBreakdown(
+                      'This Year',
+                      'year',
+                      targetMonth: monthStart(DateTime.now()),
+                    ),
+                    child: SizedBox(
+                      height: 116,
+                      child: _SummaryCard(
+                        title: 'THIS YEAR',
+                        amount: formatWholeCurrency(
+                          _calculateTotal(
+                            'year',
+                            targetMonth: monthStart(DateTime.now()),
                           ),
-                          subtitle: 'Total actual spending',
-                          icon: Icons.show_chart,
-                          matchPanels: isWide,
+                          _currency,
                         ),
+                        subtitle: 'Total actual spending',
+                        icon: Icons.show_chart,
+                        matchPanels: isWide,
                       ),
                     ),
                   ),
-                ],
-              ),
+                ),
+              ],
+            ),
           ];
 
     final entryWidgets = _selectedTab != 0
@@ -2764,11 +3255,13 @@ class _DashboardScreenState extends State<DashboardScreen>
                 setState(() {
                   _selectedCategory = category;
                   _selectedCategoryId = selected?.id;
+                  _manualCategoryEdited = true;
                 });
               },
             ),
             const SizedBox(height: 12),
             DropdownButtonFormField<ExpenseType>(
+              isExpanded: true,
               initialValue: _selectedExpenseType,
               decoration: InputDecoration(
                 labelText: 'Expense type',
@@ -2808,7 +3301,20 @@ class _DashboardScreenState extends State<DashboardScreen>
             const SizedBox(height: 16),
             TextField(
               controller: _descController,
-              onChanged: (_) => setState(() {}),
+              onChanged: (_) => setState(() {
+                if (!_manualCategoryEdited) {
+                  final rule = _merchantStore.index.merchantFor(
+                    _descController.text,
+                  );
+                  if (rule?['category'] != null &&
+                      _activeExpenseCategories.any(
+                        (c) => c.id == rule?['categoryId'],
+                      )) {
+                    _selectedCategory = rule!['category'] as String;
+                    _selectedCategoryId = rule['categoryId'] as String;
+                  }
+                }
+              }),
               decoration: InputDecoration(
                 labelText: 'Description (Optional)',
                 border: OutlineInputBorder(
@@ -2850,27 +3356,6 @@ class _DashboardScreenState extends State<DashboardScreen>
             ),
           ];
 
-    final trendsWidgets = _selectedTab != 2
-        ? <Widget>[]
-        : <Widget>[
-            SpendingSummaryWidget(
-              transactions: _transactions,
-              currencySymbol: _currency,
-              cardMargin: isWide ? EdgeInsets.zero : null,
-              cornerRadius: isWide ? 20 : null,
-              contentPadding: isWide ? 18 : 16,
-            ),
-            const SizedBox(height: 12),
-            FavouriteSpendingSpotsWidget(
-              transactions: _transactions,
-              currencySymbol: _currency,
-            ),
-            if (insightMessage != null) ...[
-              const SizedBox(height: 12),
-              _SpendingInsightCard(message: insightMessage),
-            ],
-          ];
-
     final sortedTransactions = _selectedTab < 2
         ? ([..._transactions]..sort((a, b) => b.date.compareTo(a.date)))
         : <Transaction>[];
@@ -2904,10 +3389,14 @@ class _DashboardScreenState extends State<DashboardScreen>
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(
-                'Recent Expenses',
-                style: Theme.of(context).textTheme.titleMedium
-                    ?.copyWith(fontWeight: FontWeight.bold),
+              Expanded(
+                child: Text(
+                  'Recent Expenses',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.titleMedium
+                      ?.copyWith(fontWeight: FontWeight.bold),
+                ),
               ),
               TextButton(
                 onPressed: () => setState(() => _selectedTab = 1),
@@ -2999,7 +3488,22 @@ class _DashboardScreenState extends State<DashboardScreen>
                         ),
                       );
                     case 4:
-                      return const Divider(height: 24);
+                      return Column(
+                        children: [
+                          OutlinedButton.icon(
+                            key: const ValueKey('scan_email_expenses_button'),
+                            onPressed: () => _openEmailCapture(),
+                            icon: const Icon(Icons.mark_email_read_outlined),
+                            label: const Text(
+                              'Scan emails for missed expenses',
+                            ),
+                            style: OutlinedButton.styleFrom(
+                              minimumSize: const Size(double.infinity, 50),
+                            ),
+                          ),
+                          const Divider(height: 24),
+                        ],
+                      );
                     case 5:
                       return Padding(
                         padding: const EdgeInsets.only(bottom: 8),
@@ -3042,33 +3546,103 @@ class _DashboardScreenState extends State<DashboardScreen>
         );
         break;
       case 2:
-        selectedPage = scrollablePage([
-          const Text(
-            'Insights',
-            style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 12),
-          ...trendsWidgets,
-          const SizedBox(height: 12),
-          Card(
-            child: ListTile(
-              leading: const Icon(Icons.menu_book_outlined),
-              title: const Text('My Financial Baseline'),
-              subtitle: const Text(
-                'Essential and Potentially Flexible spending',
+        final shortcuts = <({String label, IconData icon, VoidCallback onTap})>[
+          (
+            label: 'Spending trends',
+            icon: Icons.trending_up,
+            onTap: () => _openInsight(
+              'Spending trends',
+              Column(
+                children: [
+                  SpendingSummaryWidget(
+                    transactions: _transactions,
+                    currencySymbol: _currency,
+                  ),
+                  if (insightMessage != null)
+                    _SpendingInsightCard(message: insightMessage),
+                ],
               ),
-              trailing: const Icon(Icons.chevron_right),
-              onTap: _openFinancialBaseline,
             ),
           ),
-          Card(
-            child: ListTile(
-              leading: const Icon(Icons.flag_outlined),
-              title: const Text('Spending Targets'),
-              trailing: const Icon(Icons.chevron_right),
-              onTap: _openSpendingTargets,
+          (
+            label: 'Spending spots',
+            icon: Icons.storefront_outlined,
+            onTap: () => _openInsight(
+              'Favourite spending spots',
+              FavouriteSpendingSpotsWidget(
+                transactions: _transactions,
+                currencySymbol: _currency,
+              ),
             ),
           ),
+          (
+            label: 'Savings insights',
+            icon: Icons.insights_outlined,
+            onTap: _openFinancialBaselineDetails,
+          ),
+          (
+            label: 'Suggested budget',
+            icon: Icons.calculate_outlined,
+            onTap: _showSuggestedBudget,
+          ),
+          (
+            label: 'Spending targets',
+            icon: Icons.flag_outlined,
+            onTap: _openSpendingTargets,
+          ),
+        ];
+        selectedPage = scrollablePage([
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final columns = constraints.maxWidth >= 650 ? 5 : 3;
+              final itemWidth =
+                  (constraints.maxWidth - (columns - 1) * 8) / columns;
+              return Wrap(
+                key: const ValueKey('insight-shortcuts'),
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  for (final shortcut in shortcuts)
+                    SizedBox(
+                      width: itemWidth,
+                      child: OutlinedButton(
+                        onPressed: shortcut.onTap,
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 12,
+                          ),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                        ),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(shortcut.icon, size: 26),
+                            const SizedBox(height: 8),
+                            SizedBox(
+                              height: 34,
+                              child: Center(
+                                child: Text(
+                                  shortcut.label,
+                                  textAlign: TextAlign.center,
+                                  maxLines: 2,
+                                  style: const TextStyle(fontSize: 12),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                ],
+              );
+            },
+          ),
+          const SizedBox(height: 12),
+          _merchantPanel(),
         ]);
         break;
       default:
@@ -3101,7 +3675,18 @@ class _DashboardScreenState extends State<DashboardScreen>
                   value: widget.isDarkMode,
                   onChanged: _toggleDarkMode,
                 ),
+                const Divider(height: 1),
+                ListTile(
+                  leading: const Icon(Icons.mark_email_read_outlined),
+                  title: const Text('Email & scan reminders'),
+                  subtitle: const Text(
+                    'Connect your mailbox and choose optional hourly or daily reminders. Scans start only in Expenses.',
+                  ),
+                  onTap: () => _openEmailCapture(settingsMode: true),
+                ),
                 if (!kIsWeb) ...[
+                  const Divider(height: 1),
+                  PocketLedgerWebSettingsTile(store: _merchantStore),
                   const Divider(height: 1),
                   ListTile(
                     leading: const Icon(Icons.notifications_active_outlined),
@@ -3118,6 +3703,15 @@ class _DashboardScreenState extends State<DashboardScreen>
                     onTap: _isWorkerSyncing ? null : _syncCsvToWorker,
                   ),
                 ],
+                const Divider(height: 1),
+                ListTile(
+                  leading: const Icon(Icons.feedback_outlined),
+                  title: const Text('Submit feedback or request a feature'),
+                  onTap: () => showDialog<void>(
+                    context: context,
+                    builder: (_) => const FeedbackDialog(),
+                  ),
+                ),
                 const Divider(height: 1),
                 ListTile(
                   leading: const Icon(Icons.logout),
@@ -3140,7 +3734,13 @@ class _DashboardScreenState extends State<DashboardScreen>
       body: selectedPage,
       bottomNavigationBar: NavigationBar(
         selectedIndex: _selectedTab,
-        onDestinationSelected: (index) => setState(() => _selectedTab = index),
+        onDestinationSelected: (index) => setState(() {
+          _selectedTab = index;
+          if (_showRemainingClassification) {
+            _showRemainingClassification = false;
+            _classificationEntry++;
+          }
+        }),
         destinations: const [
           NavigationDestination(
             icon: Icon(Icons.home_outlined),
@@ -3470,6 +4070,7 @@ class _ExpenseEditDialogState extends State<_ExpenseEditDialog> {
   late final TextEditingController _descriptionController;
   late String _category;
   late ExpenseType _expenseType;
+  bool _expenseTypeEdited = false;
   late DateTime _date;
   String? _validationError;
 
@@ -3516,7 +4117,7 @@ class _ExpenseEditDialogState extends State<_ExpenseEditDialog> {
         amount: amount,
         category: _category,
         description: _descriptionController.text.trim(),
-        expenseType: _expenseType,
+        expenseType: _expenseTypeEdited ? _expenseType : null,
         date: _date,
       ),
     );
@@ -3562,6 +4163,7 @@ class _ExpenseEditDialogState extends State<_ExpenseEditDialog> {
             ),
             const SizedBox(height: 12),
             DropdownButtonFormField<ExpenseType>(
+              isExpanded: true,
               initialValue: _expenseType,
               decoration: const InputDecoration(labelText: 'Expense type'),
               items: ExpenseType.values
@@ -3573,7 +4175,11 @@ class _ExpenseEditDialogState extends State<_ExpenseEditDialog> {
                   )
                   .toList(),
               onChanged: (value) {
-                if (value != null) setState(() => _expenseType = value);
+                if (value != null)
+                  setState(() {
+                    _expenseType = value;
+                    _expenseTypeEdited = true;
+                  });
               },
             ),
             TextField(

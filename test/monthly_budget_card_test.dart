@@ -134,7 +134,8 @@ void main() {
     );
     expect(find.text('\$0'), findsAtLeastNWidgets(1));
     expect(find.byType(LinearProgressIndicator), findsOneWidget);
-    expect(find.text('\$100'), findsNWidgets(2));
+    expect(find.text('\$100'), findsOneWidget);
+    expect(find.text('Within budget · \$100 remaining'), findsOneWidget);
   });
 
   testWidgets('shows over-budget rollover message', (tester) async {
@@ -208,7 +209,7 @@ void main() {
         ),
       ),
     );
-    expect(find.text('\$0'), findsOneWidget);
+    expect(find.text('Exactly on budget'), findsOneWidget);
     expect(find.text('Daily Allowance \$0 · 1 day left'), findsOneWidget);
     expect(find.text('Over budget by'), findsNothing);
 
@@ -264,7 +265,9 @@ void main() {
     expect(tester.takeException(), isNull);
     expect(find.textContaining('Daily Allowance'), findsOneWidget);
     expect(find.text('Days left in month'), findsNothing);
-    final allowance = find.text('Daily Allowance \$88 · 17 days left');
+    final allowance = find.text(
+      'Daily Allowance Not available while over budget',
+    );
     expect(allowance, findsOneWidget);
     final allowanceText = tester.widget<Text>(allowance);
     expect(allowanceText.maxLines, 1);
@@ -280,6 +283,7 @@ void main() {
             body: MonthlyBudgetCard(
               currentSpent: 240,
               regularSpent: 150,
+              plannedOccasionalSpent: 90,
               currencySymbol: '\$',
               monthlyTarget: 300,
               now: DateTime(2025, 3, 15),
@@ -293,13 +297,13 @@ void main() {
       final budgetLabel = tester.getRect(find.text('Monthly Budget'));
       final budgetAmount = tester.getRect(find.text('\$300'));
       final progressBar = tester.getRect(find.byType(LinearProgressIndicator));
-      final remainingLabel = tester.getRect(find.text('Budget remaining'));
+      final remainingLabel = tester.getRect(find.text('Budget outcome'));
       final card = tester.getRect(find.byType(Card));
       final allowancePill = tester.getRect(
         find.byKey(const ValueKey('daily-allowance-pill')),
       );
       final allowanceText = tester.getRect(
-        find.text('Daily Allowance \$9 · 17 days left'),
+        find.text('Daily Allowance \$4 · 17 days left'),
       );
       expect(remainingLabel.center.dx, greaterThan(budgetLabel.center.dx));
       expect(remainingLabel.center.dy, closeTo(budgetLabel.center.dy, 24));
@@ -307,8 +311,8 @@ void main() {
       expect(allowanceText.center.dx, closeTo(allowancePill.center.dx, 2));
       expect(allowancePill.top, greaterThan(budgetLabel.top));
       expect(find.text('Days left in month'), findsNothing);
-      expect(find.text('Daily Allowance \$9 · 17 days left'), findsOneWidget);
-      expect(find.text('50% of budget left'), findsOneWidget);
+      expect(find.text('Daily Allowance \$4 · 17 days left'), findsOneWidget);
+      expect(find.text('20% of budget left'), findsOneWidget);
       expect(find.byType(Divider), findsNothing);
       expect(budgetAmount.top - budgetLabel.bottom, lessThanOrEqualTo(24));
       expect(progressBar.top, greaterThan(budgetAmount.bottom));

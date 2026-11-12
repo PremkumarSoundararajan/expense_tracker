@@ -67,6 +67,26 @@ String stableCategoryId(String parentId, String name) {
 String createCustomCategoryId(String parentId) =>
     '$parentId:custom-${DateTime.now().microsecondsSinceEpoch.toRadixString(36)}-${Random.secure().nextInt(1 << 20).toRadixString(36)}';
 
+const homeMaintenanceCategory = ExpenseCategory(
+  id: 'housing-bills:home-maintenance',
+  parentId: 'housing-bills',
+  name: 'Home Maintenance',
+  isSuggested: true,
+);
+
+List<ExpenseCategory> withHomeMaintenance(
+  Iterable<ExpenseCategory> categories,
+) {
+  final result = categories.toList();
+  if (!result.any(
+    (c) =>
+        c.id == homeMaintenanceCategory.id ||
+        c.name.toLowerCase() == 'home maintenance',
+  ))
+    result.add(homeMaintenanceCategory);
+  return result;
+}
+
 class ExpenseCategory {
   const ExpenseCategory({
     required this.id,

@@ -2,6 +2,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/transaction.dart';
 import 'transaction_filter.dart';
+import 'budget_comparison.dart';
 
 class MonthlyBudgetSnapshotStore {
   static const _activeBudgetKey = 'monthly_target';
@@ -81,6 +82,7 @@ class MonthlyRolloverRecap {
     this.previousMonthRegularSpend,
     this.previousMonthPlannedOccasionalSpend = 0,
     this.previousMonthUnexpectedOccasionalSpend = 0,
+    this.spending,
     required this.monthlyBudget,
   });
 
@@ -89,23 +91,27 @@ class MonthlyRolloverRecap {
   final double previousMonthPlannedOccasionalSpend;
   final double previousMonthUnexpectedOccasionalSpend;
   final double monthlyBudget;
+  final BudgetSpending? spending;
 
   double get regularSpend => previousMonthRegularSpend ?? previousMonthSpend;
+  double get budgetRelevantSpend =>
+      spending?.budgetRelevant ??
+      previousMonthSpend - previousMonthUnexpectedOccasionalSpend;
 
-  bool get stayedUnderBudget => regularSpend <= monthlyBudget;
+  bool get stayedUnderBudget => spending == null
+      ? budgetRelevantSpend <= monthlyBudget
+      : spending!.outcome(monthlyBudget) != BudgetOutcome.over;
 
   double get difference => stayedUnderBudget
-      ? monthlyBudget - regularSpend
-      : regularSpend - monthlyBudget;
+      ? monthlyBudget - (spending?.maximum ?? budgetRelevantSpend)
+      : (spending?.minimum ?? budgetRelevantSpend) - monthlyBudget;
 
   static MonthlyRolloverRecap? calculate({
     required List<Transaction> transactions,
     required double? monthlyBudget,
     DateTime? now,
   }) {
-    if (monthlyBudget == null ||
-        !monthlyBudget.isFinite ||
-        monthlyBudget <= 0) {
+    if (monthlyBudget == null || !monthlyBudget.isFinite || monthlyBudget < 0) {
       return null;
     }
 
@@ -134,31 +140,18 @@ class MonthlyRolloverRecap {
               transaction.date.isBefore(currentMonthStart),
         )
         .toList(growable: false);
-    final previousMonthSpend = previousMonthTransactions.fold<double>(
-      0,
-      (total, transaction) => total + transaction.amount,
-    );
-    final previousMonthRegularSpend = previousMonthTransactions
-        .where((transaction) => transaction.expenseType == ExpenseType.regular)
-        .fold<double>(0, (total, transaction) => total + transaction.amount);
-    final previousMonthPlannedSpend = previousMonthTransactions
-        .where(
-          (transaction) =>
-              transaction.expenseType == ExpenseType.plannedOccasional,
-        )
-        .fold<double>(0, (total, transaction) => total + transaction.amount);
-    final previousMonthUnexpectedSpend = previousMonthTransactions
-        .where(
-          (transaction) =>
-              transaction.expenseType == ExpenseType.unexpectedOccasional,
-        )
-        .fold<double>(0, (total, transaction) => total + transaction.amount);
+    final spending = BudgetSpending.fromTransactions(previousMonthTransactions);
+    if (previousMonthTransactions.isEmpty ||
+        spending.outcome(monthlyBudget) == BudgetOutcome.uncertain) {
+      return null;
+    }
 
     return MonthlyRolloverRecap(
-      previousMonthSpend: previousMonthSpend,
-      previousMonthRegularSpend: previousMonthRegularSpend,
-      previousMonthPlannedOccasionalSpend: previousMonthPlannedSpend,
-      previousMonthUnexpectedOccasionalSpend: previousMonthUnexpectedSpend,
+      spending: spending,
+      previousMonthSpend: spending.total,
+      previousMonthRegularSpend: spending.regular,
+      previousMonthPlannedOccasionalSpend: spending.planned,
+      previousMonthUnexpectedOccasionalSpend: spending.unexpected,
       monthlyBudget: monthlyBudget,
     );
   }

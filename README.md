@@ -55,26 +55,49 @@ exports remain supported, with recognizable income descriptions filtered.
 
 ## Financial baseline
 
-Open **My Financial Baseline** from the dashboard to map normalized ledger
-merchants directly to Essential, Committed, or Discretionary. The unassigned
-merchant pool and search are at the top; tap a merchant to choose a group, or
-select multiple merchants and batch-assign them. These direct mappings are
-independent from each transaction's existing Regular, Planned Occasional, or
-Unexpected Occasional frequency. Transfers, card payments, refunds, and
-reversals are excluded from baseline totals and internal transfers are tagged
-as Transfers.
+**Insights** opens the merchant-first Financial Baseline work list. It
+reuses Favourite Spending Spots consolidation and defaults to merchants covering
+80% of recorded net spending. Fully classified merchants (Category, Essentiality,
+and known Expense Type on every transaction) leave the work list but remain
+available under **Review classified**. At 80% fully classified, the default view
+shows an optional stopping point. **Review remaining** includes all unfinished
+merchants, ranked by total spending. Budget warnings link straight to this view,
+including merchants beyond the 80% target. Users can choose Top 15, 75%, 90%, or All,
+search the selected view, and expand any row to inspect its transactions. Category and
+Essential/Potentially Flexible choices apply to a merchant; transaction choices
+are explicit exceptions. Changing merchant defaults preserves exceptions unless
+"Apply to all, including exceptions" is confirmed. Unfinished edits survive in
+an account-local draft; Save changes commits them and Discard clears the draft.
 
-Rules are saved per Google account in local preferences and synchronized to a
-`Financial Baseline` metadata tab in the `Expense Tracker DB` spreadsheet.
-Monthly averages span the first through last calendar month in the ledger,
-including months with no matching transactions; normalized annual amounts are
-the monthly averages multiplied by 12.
+Category and essentiality are independent from Regular, Planned Occasional,
+Unexpected Occasional, and Unknown Expense Type. Reviewing a merchant does not
+silently change its transactions' frequency or remove existing budget coverage
+warnings. Unreviewed merchants retain their existing suggestions/legacy mappings.
 
-The merchant pool shows each discovered normalized merchant's occurrence count
-and average amount. Monthly group totals and averages update as mappings
-change. Pocket Ledger checks the expected row-one headers before reading or
-writing connected sheets and reports a layout error if they are missing or
-modified.
+Committed choices and transaction exceptions are stored per account locally and
+as stable-ID JSON records in a **Merchant Classifications** metadata tab. Existing
+**Financial Baseline** mappings remain readable as a fallback; explicit master
+choices and transaction exceptions take precedence. Insights use the effective
+classified ledger. The existing baseline averages and budget formulas are not
+changed. Spending trends, favourite spots, baseline insights/reductions, targets,
+and suggested-budget details are opened through compact links below the table.
+
+Category changes are projected to Sheet1 Category/Category ID cells using batched
+writes. Transaction IDs are resolved again just before writing, so shifted or
+deleted sheet rows are not addressed using cached row numbers. Dates, amounts,
+raw descriptions, Expense Types, and transaction IDs are preserved. Metadata and
+category sync retry after failures; local changes remain available offline.
+Unrelated remote metadata records survive synchronization.
+
+New matching descriptions reuse saved merchant defaults. Import review uses the
+same spending-spot family resolver; the Worker also applies exact normalized
+aliases and retains explicit reviewed categories as transaction exceptions.
+Ambiguous matches stay unresolved rather than guessing. Other insight date
+windows and transfer/refund eligibility rules remain in place.
+
+Deploy the updated **pocket-ledger-api Worker before releasing the Flutter/web
+app**. The app checks the Worker's `merchantClassificationReview` capability
+before statement import, preventing silent use of an older classification path.
 
 ## iOS / TestFlight
 

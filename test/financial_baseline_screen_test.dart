@@ -6,6 +6,46 @@ import 'package:pocket_ledger/models/transaction.dart';
 import 'package:pocket_ledger/widgets/financial_baseline_screen.dart';
 
 void main() {
+  for (final width in [1280.0, 390.0]) {
+    testWidgets('insights action stays next to the top summary at $width', (
+      tester,
+    ) async {
+      tester.view.physicalSize = Size(width, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: FinancialBaselineScreen(
+            insightsOnly: true,
+            transactions: [_transaction(DateTime(2025, 1), 60, 'LOCAL MARKET')],
+            initialMappings: const [],
+            currencySymbol: r'$',
+            onMappingsSaved: (_) async => null,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('Close insights'));
+      await tester.pumpAndSettle();
+      final button = tester.getRect(
+        find.byKey(const ValueKey('view-baseline-insights')),
+      );
+      final progress = tester.getRect(
+        find.byKey(const ValueKey('classification-progress')),
+      );
+      expect(button.top, lessThan(200));
+      expect((button.center.dy - progress.center.dy).abs(), lessThan(60));
+      if (width < 550) {
+        expect(button.top, greaterThan(progress.bottom));
+        expect(button.width, greaterThan(width - 80));
+      }
+      await tester.tap(find.byKey(const ValueKey('view-baseline-insights')));
+      await tester.pumpAndSettle();
+      expect(find.byTooltip('Close insights'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+  }
   testWidgets('organizer is primary and removes long analysis sections', (
     tester,
   ) async {
@@ -725,6 +765,54 @@ void main() {
     expect(find.byKey(const ValueKey('baseline-save-reminder')), findsNothing);
     expect(find.text('Preview – Unsaved Changes (20)'), findsOneWidget);
   });
+  testWidgets(
+    'known future merchant variants are organized and only new merchants stay unclassified',
+    (tester) async {
+      tester.view.physicalSize = const Size(1200, 1400);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      var writes = 0;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: FinancialBaselineScreen(
+            transactions: [
+              _transaction(DateTime(2026, 12), 20, 'NETFLIX MONTHLY PLAN'),
+              _transaction(DateTime(2026, 12), 15, 'NETFLIX WEB ID 94839'),
+              _transaction(DateTime(2026, 12), 30, 'NEBULA STUDIO'),
+            ],
+            initialMappings: const [
+              FinancialBaselineMapping(
+                merchantFingerprint: 'NETFLIX',
+                group: BaselineGroup.potentiallyFlexible,
+              ),
+            ],
+            currencySymbol: r'$',
+            onMappingsSaved: (_) async {
+              writes++;
+              return null;
+            },
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await _scrollTo(
+        tester,
+        find.byKey(const ValueKey('unassigned-merchants-panel')),
+      );
+      expect(find.text('1 left · 1 shown'), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('unassigned-nebula studio')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('unassigned-netflix monthly plan')),
+        findsNothing,
+      );
+      expect(find.byKey(const ValueKey('unassigned-netflix')), findsNothing);
+      expect(writes, 0);
+    },
+  );
 }
 
 Future<void> _scrollTo(WidgetTester tester, Finder target) async {

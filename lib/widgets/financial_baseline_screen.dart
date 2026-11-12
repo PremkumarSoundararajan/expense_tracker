@@ -8,7 +8,6 @@ import '../models/transaction.dart';
 import '../services/financial_baseline_service.dart';
 import '../services/financial_baseline_insights_service.dart';
 import '../widgets/spending_reduction_planner_screen.dart';
-import '../services/merchant_normalizer.dart';
 import '../services/merchant_discovery_service.dart';
 import '../utils/currency_format.dart';
 
@@ -26,11 +25,13 @@ class FinancialBaselineScreen extends StatefulWidget {
     this.targetStore,
     this.onTargetsSaved,
     this.historyComplete = false,
+    this.insightsOnly = false,
   });
 
   final SpendingTargetStore? targetStore;
   final Future<String> Function()? onTargetsSaved;
   final bool historyComplete;
+  final bool insightsOnly;
   final List<Transaction> transactions;
   final List<FinancialBaselineMapping> initialMappings;
   final List<ExpenseCategory> categories;
@@ -48,11 +49,10 @@ class FinancialBaselineScreen extends StatefulWidget {
 
 class _FinancialBaselineScreenState extends State<FinancialBaselineScreen> {
   final FinancialBaselineService _service = FinancialBaselineService();
-  final FinancialBaselineInsightsService _insightsService =
-      FinancialBaselineInsightsService();
-  final MerchantDiscoveryService _merchantDiscoveryService =
-      MerchantDiscoveryService();
-  final MerchantNormalizer _normalizer = const MerchantNormalizer();
+  late final FinancialBaselineInsightsService _insightsService =
+      FinancialBaselineInsightsService(baselineService: _service);
+  late final MerchantDiscoveryService _merchantDiscoveryService =
+      MerchantDiscoveryService(financialBaselineService: _service);
   late final FinancialBaselineProvider _provider;
   late final List<DiscoveredMerchant> _merchants;
   late final Map<String, String> _merchantSearchIndex;
@@ -64,6 +64,12 @@ class _FinancialBaselineScreenState extends State<FinancialBaselineScreen> {
   bool _saveReminderShownForBatch = false;
   bool _organizedExpanded = false;
   String? _saveStatus;
+  FinancialBaselineMerchantMatcher? _merchantMatcher;
+  List<DiscoveredMerchant>? _unassignedCache;
+  _MerchantSort? _unassignedSort;
+  int? _changedCountCache;
+  BaselineSpendingInsights? _insightsCache;
+  DateTime? _insightsMonth;
   final List<String> _draftConflictMerchants = [];
   final Map<BaselineGroup, TextEditingController> _groupSearchControllers = {};
   final Map<BaselineGroup, FocusNode> _groupSearchFocusNodes = {};
@@ -76,7 +82,7 @@ class _FinancialBaselineScreenState extends State<FinancialBaselineScreen> {
   void initState() {
     super.initState();
     _committedMappings = List.of(widget.initialMappings);
-    final restored = widget.initialDraft;
+    final restored = widget.insightsOnly ? null : widget.initialDraft;
     _draftRestored = restored != null;
     final initial = restored == null
         ? widget.initialMappings
@@ -100,6 +106,10 @@ class _FinancialBaselineScreenState extends State<FinancialBaselineScreen> {
       for (final entry in descriptions.entries)
         entry.key: entry.value.join(' '),
     };
+    if (widget.insightsOnly)
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _openInsights();
+      });
   }
 
   @override
@@ -110,8 +120,7 @@ class _FinancialBaselineScreenState extends State<FinancialBaselineScreen> {
     super.dispose();
   }
 
-  String _normalizedFingerprint(String value) =>
-      _normalizer.normalize(value).trim().toLowerCase();
+  String _normalizedFingerprint(String value) => _service.merchantKey(value);
 
   String _stateKey(DiscoveredMerchant merchant) =>
       _normalizedFingerprint(merchant.merchantFingerprint);
@@ -152,7 +161,16 @@ class _FinancialBaselineScreenState extends State<FinancialBaselineScreen> {
     return merged.values.toList(growable: false);
   }
 
-  int get _changedCount {
+  int get _changedCount => _changedCountCache ??= _countChanges();
+
+  void _invalidateDerivedState() {
+    _merchantMatcher = null;
+    _unassignedCache = null;
+    _changedCountCache = null;
+    _insightsCache = null;
+  }
+
+  int _countChanges() {
     final committed = {
       for (final m in _committedMappings)
         _normalizedFingerprint(m.merchantFingerprint): m.group,
@@ -168,15 +186,21 @@ class _FinancialBaselineScreenState extends State<FinancialBaselineScreen> {
   }
 
   List<DiscoveredMerchant> get _unassignedMerchants {
-    final assigned = _mappings
-        .map((m) => _normalizedFingerprint(m.merchantFingerprint))
-        .toSet();
-    final values = _merchants
-        .where(
-          (m) =>
-              !assigned.contains(_normalizedFingerprint(m.merchantFingerprint)),
-        )
-        .toList();
+    if (_unassignedCache != null && _unassignedSort == _merchantSort) {
+      return _unassignedCache!;
+    }
+    final matcher = _merchantMatcher ??= _service.merchantMatcher(_mappings);
+    final values = _unassignedCache == null
+        ? _merchants.where((merchant) {
+            final groups = matcher
+                .match(merchant.merchantFingerprint)
+                .map((mapping) => mapping.group)
+                .toSet();
+            // Recognized statement variants are already organized. New merchants
+            // and conflicting rules remain in the inventory for user review.
+            return groups.length != 1;
+          }).toList()
+        : List<DiscoveredMerchant>.of(_unassignedCache!);
     values.sort((a, b) {
       final comparison = switch (_merchantSort) {
         _MerchantSort.highestSpending => b.totalAmount.compareTo(a.totalAmount),
@@ -192,7 +216,8 @@ class _FinancialBaselineScreenState extends State<FinancialBaselineScreen> {
           ? comparison
           : a.merchantFingerprint.compareTo(b.merchantFingerprint);
     });
-    return values;
+    _unassignedSort = _merchantSort;
+    return _unassignedCache = List.unmodifiable(values);
   }
 
   Future<void> _chooseGroup(List<DiscoveredMerchant> merchants) async {
@@ -280,6 +305,7 @@ class _FinancialBaselineScreenState extends State<FinancialBaselineScreen> {
     _provider.updateMappings(mappings);
     setState(() {
       _mappings = _provider.mappings;
+      _invalidateDerivedState();
       _saveStatus = null;
     });
     if (!_saveReminderShownForBatch &&
@@ -345,6 +371,7 @@ class _FinancialBaselineScreenState extends State<FinancialBaselineScreen> {
         List.unmodifiable(_mappings),
       );
       _committedMappings = List.of(_mappings);
+      _changedCountCache = null;
       await widget.onDraftCleared?.call();
       if (mounted) {
         setState(() {
@@ -368,6 +395,7 @@ class _FinancialBaselineScreenState extends State<FinancialBaselineScreen> {
     setState(() {
       _saveReminderShownForBatch = false;
       _mappings = _provider.mappings;
+      _invalidateDerivedState();
       _draftRestored = false;
       _saveStatus = null;
     });
@@ -925,6 +953,7 @@ class _FinancialBaselineScreenState extends State<FinancialBaselineScreen> {
         child: LayoutBuilder(
           builder: (context, constraints) {
             final progress = Column(
+              mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Wrap(
@@ -964,10 +993,7 @@ class _FinancialBaselineScreenState extends State<FinancialBaselineScreen> {
             if (constraints.maxWidth < 550) {
               return Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  progress,
-                  Align(alignment: Alignment.centerRight, child: action),
-                ],
+                children: [progress, const SizedBox(height: 8), action],
               );
             }
             return Row(
@@ -1018,11 +1044,16 @@ class _FinancialBaselineScreenState extends State<FinancialBaselineScreen> {
     ColorScheme colors,
   ) {
     final readiness = baselineInsightReadiness(summary.classifiedPercentage);
-    final spendingTrend = _insightsService.build(
+    final now = DateTime.now();
+    final month = DateTime(now.year, now.month);
+    if (_insightsMonth != month) _insightsCache = null;
+    _insightsMonth = month;
+    final spendingTrend = _insightsCache ??= _insightsService.build(
       transactions: _provider.transactions,
       mappings: _mappings,
-      now: DateTime.now(),
+      now: now,
       currencySymbol: widget.currencySymbol,
+      classifiedTransactions: _provider.analysis.matches,
     );
     final isUnsaved = _changedCount > 0;
     Widget amountCard(
@@ -1191,6 +1222,7 @@ class _FinancialBaselineScreenState extends State<FinancialBaselineScreen> {
     final planner = SpendingReductionPlannerScreen(
       transactions: List.unmodifiable(_provider.transactions),
       lifestyleMappings: List.unmodifiable(_mappings),
+      baselineAnalysis: _provider.analysis,
       categories: List.unmodifiable(widget.categories),
       currencySymbol: widget.currencySymbol,
       targetStore: widget.targetStore,
@@ -1372,12 +1404,16 @@ class _FinancialBaselineScreenState extends State<FinancialBaselineScreen> {
   @override
   Widget build(BuildContext context) {
     final summary = _provider.summary;
-    final matches = _service.classify(
-      transactions: _provider.transactions,
-      mappings: _provider.mappings,
-    );
-    final conflicts = matches.where((match) => match.needsReview).toList();
+    final conflicts = summary.conflictCount;
     final colors = Theme.of(context).colorScheme;
+    if (widget.insightsOnly)
+      return Scaffold(
+        appBar: AppBar(title: const Text('Baseline insights & reductions')),
+        body: ListView(
+          padding: const EdgeInsets.all(16),
+          children: [_buildClassificationProgress(summary, colors)],
+        ),
+      );
     return Scaffold(
       appBar: AppBar(
         title: const Text('My Financial Baseline'),
@@ -1452,10 +1488,10 @@ class _FinancialBaselineScreenState extends State<FinancialBaselineScreen> {
           _buildClassificationProgress(summary, colors),
           const SizedBox(height: 8),
           _buildOrganizer(colors),
-          if (conflicts.isNotEmpty) ...[
+          if (conflicts > 0) ...[
             const SizedBox(height: 6),
             Text(
-              '${conflicts.length} transaction(s) have overlapping merchant groups and remain unclassified.',
+              '$conflicts transaction(s) have overlapping merchant groups and remain unclassified.',
               key: const ValueKey('baseline-mapping-conflicts'),
               style: Theme.of(context).textTheme.labelSmall
                   ?.copyWith(color: colors.error),

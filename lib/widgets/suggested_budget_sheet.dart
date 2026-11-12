@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 
-import '../models/transaction.dart';
 import '../services/suggested_budget_service.dart';
 import '../utils/currency_format.dart';
 
@@ -9,6 +8,7 @@ Future<double?> showSuggestedBudgetSheet({
   required SuggestedBudget suggestion,
   required String currencySymbol,
   bool allowApply = true,
+  VoidCallback? onReviewUnclassified,
 }) {
   return showModalBottomSheet<double>(
     context: context,
@@ -19,6 +19,7 @@ Future<double?> showSuggestedBudgetSheet({
         suggestion: suggestion,
         currencySymbol: currencySymbol,
         allowApply: allowApply,
+        onReviewUnclassified: onReviewUnclassified,
       );
     },
   );
@@ -30,22 +31,25 @@ class SuggestedBudgetBreakdown extends StatelessWidget {
     required this.suggestion,
     required this.currencySymbol,
     this.allowApply = true,
+    this.onReviewUnclassified,
   });
 
   final SuggestedBudget suggestion;
   final String currencySymbol;
   final bool allowApply;
+  final VoidCallback? onReviewUnclassified;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final mediaQuery = MediaQuery.of(context);
-    
+
     return SafeArea(
       top: false,
       child: Container(
         constraints: BoxConstraints(
-          maxHeight: mediaQuery.size.height * 0.8, // Constrain max height safely
+          maxHeight:
+              mediaQuery.size.height * 0.8, // Constrain max height safely
         ),
         padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
         child: Column(
@@ -67,6 +71,18 @@ class SuggestedBudgetBreakdown extends StatelessWidget {
                 color: theme.colorScheme.onSurfaceVariant,
               ),
             ),
+            if (suggestion.unknownCount > 0)
+              Text(
+                'Historical Expense Types: ${suggestion.historyCoveragePercent == null ? '' : '${suggestion.historyCoveragePercent!.toStringAsFixed(1)}% classified · '}'
+                '$currencySymbol${suggestion.unknownAmount.toStringAsFixed(2)} unknown. '
+                'Unknown spending is excluded from this suggestion; the amount may change after more classification.',
+                style: theme.textTheme.bodySmall,
+              ),
+            if (suggestion.unknownCount > 0 && onReviewUnclassified != null)
+              TextButton(
+                onPressed: onReviewUnclassified,
+                child: const Text('Classify remaining expenses'),
+              ),
             const SizedBox(height: 16),
             _SummaryRow(
               label: 'Recurring items',
@@ -153,9 +169,8 @@ class _SummaryRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final style = emphasize
-        ? Theme.of(context).textTheme.titleMedium?.copyWith(
-            fontWeight: FontWeight.bold,
-          )
+        ? Theme.of(context).textTheme.titleMedium
+              ?.copyWith(fontWeight: FontWeight.bold)
         : Theme.of(context).textTheme.bodyMedium;
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
@@ -170,10 +185,7 @@ class _SummaryRow extends StatelessWidget {
 }
 
 class _SuggestedItemTile extends StatelessWidget {
-  const _SuggestedItemTile({
-    required this.item,
-    required this.currencySymbol,
-  });
+  const _SuggestedItemTile({required this.item, required this.currencySymbol});
 
   final SuggestedBudgetItem item;
   final String currencySymbol;

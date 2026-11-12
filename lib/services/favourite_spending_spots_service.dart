@@ -67,6 +67,7 @@ class FavouriteSpendingSpotsService {
   FavouriteSpendingSpotsData calculate({
     required List<Transaction> transactions,
     DateTime? now,
+    bool allHistory = false,
   }) {
     final currentDate = now ?? DateTime.now();
     final currentMonth = DateTime(currentDate.year, currentDate.month);
@@ -95,10 +96,17 @@ class FavouriteSpendingSpotsService {
       currentMonth.year,
       currentMonth.month - _monthsToShow,
     );
-    final periodStart = firstEligibleMonth.isAfter(sixMonthWindowStart)
+    final periodStart = allHistory
+        ? DateTime(firstDate.year, firstDate.month)
+        : firstEligibleMonth.isAfter(sixMonthWindowStart)
         ? firstEligibleMonth
         : sixMonthWindowStart;
-    final completedMonths = periodStart.isBefore(currentMonth)
+    final completedMonths = allHistory
+        ? (currentMonth.year - periodStart.year) * 12 +
+              currentMonth.month -
+              periodStart.month +
+              1
+        : periodStart.isBefore(currentMonth)
         ? (currentMonth.year - periodStart.year) * 12 +
               currentMonth.month -
               periodStart.month
@@ -122,7 +130,7 @@ class FavouriteSpendingSpotsService {
     final eligible = <_EligibleTransaction>[];
     for (final transaction in historical) {
       if (transaction.date.isBefore(periodStart) ||
-          !transaction.date.isBefore(currentMonth) ||
+          (!allHistory && !transaction.date.isBefore(currentMonth)) ||
           isTransferTransaction(transaction) ||
           !_markAsUnique(transaction, seenIds, seenRows, seenObjects) ||
           !transaction.amount.isFinite ||
@@ -179,7 +187,7 @@ class FavouriteSpendingSpotsService {
       _addToTotals(actualTotals, key, name, spotTransaction);
       if (transaction.expenseType == ExpenseType.regular) {
         _addToTotals(regularTotals, key, name, spotTransaction);
-      } else {
+      } else if (transaction.expenseType != ExpenseType.unknown) {
         _addToTotals(occasionalTotals, key, name, spotTransaction);
       }
     }
@@ -329,7 +337,8 @@ class _MerchantNames {
 
     // Shortest-name merge: "PENNYMAC" absorbs "PENNYMAC HOME LOAN".
     final names = <String>{
-      for (final tokens in tokensByText.values) _stripLocation(tokens).join(' '),
+      for (final tokens in tokensByText.values)
+        _stripLocation(tokens).join(' '),
     }.where((name) => name.isNotEmpty).toList();
     names.sort((a, b) => a.split(' ').length.compareTo(b.split(' ').length));
     for (final name in names) {
@@ -416,19 +425,90 @@ class _MerchantNames {
 
   /// Bank boilerplate that is never part of a merchant name.
   static const _noise = <String>{
-    'ID', 'WEB', 'PPD', 'ARC', 'CCD', 'TEL', 'DES', 'INDN', 'CONF',
-    'CONFIRMATION', 'PURCHASE', 'PAYMENT', 'PMT', 'PYMT', 'TRANSFER', 'XFER',
-    'WITHDRAWAL', 'WITHDRWL', 'CHECK', 'CHK', 'ONLINE', 'RECURRING',
-    'MONEYLINE', 'CASH', 'ACCTVERIFY', 'EPAY', 'DEBIT', 'POS', 'CHECKCARD',
+    'ID',
+    'WEB',
+    'PPD',
+    'ARC',
+    'CCD',
+    'TEL',
+    'DES',
+    'INDN',
+    'CONF',
+    'CONFIRMATION',
+    'PURCHASE',
+    'PAYMENT',
+    'PMT',
+    'PYMT',
+    'TRANSFER',
+    'XFER',
+    'WITHDRAWAL',
+    'WITHDRWL',
+    'CHECK',
+    'CHK',
+    'ONLINE',
+    'RECURRING',
+    'MONEYLINE',
+    'CASH',
+    'ACCTVERIFY',
+    'EPAY',
+    'DEBIT',
+    'POS',
+    'CHECKCARD',
     'ACH',
   };
 
   static const _usStates = <String>{
-    'AL', 'AK', 'AZ', 'AR', 'CA', 'CO', 'CT', 'DE', 'FL', 'GA', 'HI', 'ID',
-    'IL', 'IN', 'IA', 'KS', 'KY', 'LA', 'ME', 'MD', 'MA', 'MI', 'MN', 'MS',
-    'MO', 'MT', 'NE', 'NV', 'NH', 'NJ', 'NM', 'NY', 'NC', 'ND', 'OH', 'OK',
-    'OR', 'PA', 'RI', 'SC', 'SD', 'TN', 'TX', 'UT', 'VT', 'VA', 'WA', 'WV',
-    'WI', 'WY', 'DC',
+    'AL',
+    'AK',
+    'AZ',
+    'AR',
+    'CA',
+    'CO',
+    'CT',
+    'DE',
+    'FL',
+    'GA',
+    'HI',
+    'ID',
+    'IL',
+    'IN',
+    'IA',
+    'KS',
+    'KY',
+    'LA',
+    'ME',
+    'MD',
+    'MA',
+    'MI',
+    'MN',
+    'MS',
+    'MO',
+    'MT',
+    'NE',
+    'NV',
+    'NH',
+    'NJ',
+    'NM',
+    'NY',
+    'NC',
+    'ND',
+    'OH',
+    'OK',
+    'OR',
+    'PA',
+    'RI',
+    'SC',
+    'SD',
+    'TN',
+    'TX',
+    'UT',
+    'VT',
+    'VA',
+    'WA',
+    'WV',
+    'WI',
+    'WY',
+    'DC',
   };
 
   static String _extract(String raw) {
@@ -496,4 +576,21 @@ class _MerchantNames {
             : word.substring(0, 1) + word.substring(1).toLowerCase(),
       )
       .join(' ');
+}
+
+/// Reuses the exact bank-layout, recipient, location and prefix consolidation
+/// used by Favourite Spending Spots, without restricting the date window.
+class SpendingMerchantNameIndex {
+  SpendingMerchantNameIndex(Iterable<String> descriptions)
+    : _names = _MerchantNames(descriptions.map(_clean));
+  final _MerchantNames _names;
+  static String _clean(String description) {
+    const service = FavouriteSpendingSpotsService();
+    return service._merchantText(
+      description,
+      isRefund: service._isRefundOrReversal(description),
+    );
+  }
+
+  String keyFor(String description) => _names.keyFor(_clean(description));
 }

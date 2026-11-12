@@ -10,11 +10,15 @@ class MonthlyBudgetTargetDialog extends StatefulWidget {
     required this.currencySymbol,
     required this.initialTarget,
     this.suggestion,
+    this.unknownCount = 0,
+    this.onReviewUnclassified,
   });
 
   final String currencySymbol;
   final double? initialTarget;
   final SuggestedBudget? suggestion;
+  final int unknownCount;
+  final VoidCallback? onReviewUnclassified;
 
   @override
   State<MonthlyBudgetTargetDialog> createState() =>
@@ -73,6 +77,15 @@ class _MonthlyBudgetTargetDialogState extends State<MonthlyBudgetTargetDialog> {
               border: const OutlineInputBorder(),
             ),
           ),
+          if (widget.unknownCount > 0)
+            Text(
+              '${widget.unknownCount} expenses have Unknown Expense Type. You can set a budget now; suggestions may change after more classification.',
+            ),
+          if (widget.unknownCount > 0 && widget.onReviewUnclassified != null)
+            TextButton(
+              onPressed: widget.onReviewUnclassified,
+              child: const Text('Classify remaining expenses'),
+            ),
           if (widget.suggestion != null) ...[
             const SizedBox(height: 12),
             InkWell(
@@ -83,6 +96,7 @@ class _MonthlyBudgetTargetDialogState extends State<MonthlyBudgetTargetDialog> {
                   suggestion: widget.suggestion!,
                   currencySymbol: widget.currencySymbol,
                   allowApply: false,
+                  onReviewUnclassified: widget.onReviewUnclassified,
                 );
               },
               child: Padding(
@@ -98,14 +112,16 @@ class _MonthlyBudgetTargetDialogState extends State<MonthlyBudgetTargetDialog> {
             ),
             TextButton(
               onPressed: () {
-                _controller.text = widget.suggestion!.amount.toStringAsFixed(
-                  2,
-                );
+                _controller.text = widget.suggestion!.amount.toStringAsFixed(2);
                 setState(() => _validationError = null);
               },
               child: const Text('Use suggested amount'),
             ),
           ],
+          if (widget.suggestion == null)
+            const Text(
+              'Not enough eligible Regular spending history to suggest a budget yet.',
+            ),
         ],
       ),
       actions: [
