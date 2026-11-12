@@ -44,12 +44,9 @@ import 'widgets/expense_category_management_screen.dart';
 import 'widgets/daily_reminder_settings_dialog.dart';
 import 'widgets/financial_baseline_screen.dart';
 import 'widgets/favourite_spending_spots_widget.dart';
-import 'widgets/month_selector.dart';
 import 'widgets/pocket_ledger_web_access.dart';
-import 'widgets/email_capture_screen.dart';
 import 'widgets/feedback_dialog.dart';
-import 'services/email_capture_service.dart';
-import 'services/merchant_normalizer.dart' as merchant_names;
+import 'widgets/email_retirement_notice.dart';
 import 'widgets/monthly_budget_card.dart';
 import 'widgets/monthly_budget_target_dialog.dart';
 import 'widgets/spending_summary_widget.dart';
@@ -430,11 +427,6 @@ class _DashboardScreenState extends State<DashboardScreen>
     _spendingTargetStore = SpendingTargetStore(
       accountKey: widget.account.email,
     );
-    _dailyReminderService.onEmailReview = () {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) setState(() => _selectedTab = 1);
-      });
-    };
     _loadCurrencyAndInitDrive();
   }
 
@@ -504,7 +496,6 @@ class _DashboardScreenState extends State<DashboardScreen>
     _calendarRefreshTimer?.cancel();
     _amountController.dispose();
     _descController.dispose();
-    _dailyReminderService.onEmailReview = null;
     _workerCsvSyncService.close();
     super.dispose();
   }
@@ -561,20 +552,19 @@ class _DashboardScreenState extends State<DashboardScreen>
         unawaited(_loadHeroMonthBudget());
       }
 
-      _emailReminderFrequency =
-          prefs.getString('${_emailReviewPreferenceKey}_frequency') ?? 'off';
-      _emailReminderTime = TimeOfDay(
-        hour: prefs.getInt('${_emailReviewPreferenceKey}_hour') ?? 20,
-        minute: prefs.getInt('${_emailReviewPreferenceKey}_minute') ?? 30,
-      );
+      // Retire scan reminders without changing normal expense reminders.
+      for (final key
+          in prefs
+              .getKeys()
+              .where((k) => k.startsWith('email_review_reminder_'))
+              .toList()) {
+        await prefs.remove(key);
+      }
       if (!kIsWeb) {
         try {
-          await _dailyReminderService.scheduleEmail(
-            _emailReminderFrequency,
-            _emailReminderTime,
-          );
+          await _dailyReminderService.cancelRetiredEmailReminder();
         } catch (_) {
-          /* Keep the scan feature usable if notifications are unavailable. */
+          /* Retry cancellation on the next app launch. */
         }
       }
       if (reminderEnabled && !kIsWeb) {
@@ -2146,174 +2136,6 @@ class _DashboardScreenState extends State<DashboardScreen>
     }
   }
 
-  bool _emailScreenOpen = false;
-  String _emailReminderFrequency = 'off';
-  TimeOfDay _emailReminderTime = const TimeOfDay(hour: 20, minute: 30);
-  String get _emailReviewPreferenceKey =>
-      'email_review_reminder_' + widget.account.email.toLowerCase();
-  EmailCaptureService _emailService() => EmailCaptureService(
-    accessToken: () async {
-      final authentication = await widget.account.authentication;
-      final token = authentication.accessToken;
-      if (token == null || token.isEmpty)
-        throw StateError('Sign in again to use email capture.');
-      return token;
-    },
-  );
-  Future<void> _setEmailReminder(String frequency) async {
-    if (kIsWeb) return;
-    if (frequency != 'off' &&
-        !await _dailyReminderService.requestPermission()) {
-      throw StateError('Allow notifications to enable email scan reminders.');
-    }
-    await _dailyReminderService.scheduleEmail(frequency, _emailReminderTime);
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('${_emailReviewPreferenceKey}_frequency', frequency);
-    if (mounted) setState(() => _emailReminderFrequency = frequency);
-  }
-
-  Future<void> _changeEmailReminderTime() async {
-    final time = await showTimePicker(
-      context: context,
-      initialTime: _emailReminderTime,
-    );
-    if (time == null) return;
-    await _dailyReminderService.scheduleEmail(_emailReminderFrequency, time);
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setInt('${_emailReviewPreferenceKey}_hour', time.hour);
-    await prefs.setInt('${_emailReviewPreferenceKey}_minute', time.minute);
-    if (mounted) setState(() => _emailReminderTime = time);
-  }
-
-  Future<void> _openEmailCapture({bool settingsMode = false}) async {
-    if (_emailScreenOpen || !mounted) return;
-    _emailScreenOpen = true;
-    final service = _emailService();
-    try {
-      await Navigator.of(context).push<void>(
-        MaterialPageRoute(
-          builder: (_) => EmailCaptureScreen(
-            service: service,
-            settingsMode: settingsMode,
-            categories: _activeExpenseCategories,
-            prepareCandidate: _prepareEmailCandidate,
-            reminderTime: () => _emailReminderTime,
-            changeReminderTime: _changeEmailReminderTime,
-            reminderFrequency: () => _emailReminderFrequency,
-            changeReminderFrequency: _setEmailReminder,
-            openSettings: () async {
-              Navigator.of(context).pop();
-              if (mounted) setState(() => _selectedTab = 3);
-            },
-            initialCurrency: _currency == '₹'
-                ? 'INR'
-                : _currency == '€'
-                ? 'EUR'
-                : _currency == '£'
-                ? 'GBP'
-                : _currency == 'RM'
-                ? 'MYR'
-                : 'USD',
-            onReview: (candidates, currency) =>
-                _reviewEmailExpenses(service, candidates, currency),
-          ),
-        ),
-      );
-    } finally {
-      _emailScreenOpen = false;
-    }
-  }
-
-  EmailExpenseCandidate _prepareEmailCandidate(
-    EmailExpenseCandidate candidate,
-  ) {
-    final raw = Transaction(
-      id: candidate.id,
-      date: DateTime.tryParse(candidate.date) ?? DateTime.now(),
-      amount: candidate.amount,
-      category: 'Uncategorized',
-      description: candidate.merchant,
-    );
-    final effective = _merchantStore.index.apply(raw);
-    final fingerprint = merchant_names
-        .normalizeMerchant(candidate.merchant)
-        .replaceAll(' ', '');
-    final duplicate =
-        candidate.importUncertain ||
-        _transactions.any((t) {
-          final other = merchant_names
-              .normalizeMerchant(t.description)
-              .replaceAll(' ', '');
-          return !isTransferTransaction(t) &&
-              t.dateOnlyIsoString == candidate.date &&
-              (t.amount - candidate.amount).abs() < .005 &&
-              (t.id == candidate.id ||
-                  (fingerprint.isNotEmpty &&
-                      other.isNotEmpty &&
-                      (fingerprint == other ||
-                          (fingerprint.length >= 4 &&
-                              other.length >= 4 &&
-                              (fingerprint.startsWith(other) ||
-                                  other.startsWith(fingerprint))))));
-        });
-    if (candidate.classificationEdited)
-      return candidate.classified(possibleDuplicate: duplicate, edited: false);
-    final group = effective.baselineGroup;
-    return candidate.classified(
-      category: effective.category,
-      categoryId: effective.categoryId,
-      expenseType: effective.expenseType.sheetValue,
-      essentiality:
-          ['Essential', 'Potentially Flexible', 'Unclassified'].contains(group)
-          ? group
-          : 'Unclassified',
-      possibleDuplicate: duplicate,
-      edited: false,
-    );
-  }
-
-  Future<String> _reviewEmailExpenses(
-    EmailCaptureService service,
-    List<EmailExpenseCandidate> candidates,
-    String currency,
-  ) async {
-    if (candidates.isEmpty || candidates.length > 50)
-      throw StateError('Choose 1–50 expenses to approve.');
-    if (candidates.any((item) => item.currency != currency))
-      throw StateError(
-        'Review one currency at a time. No conversion is performed.',
-      );
-    final result = await service.request(
-      'approve',
-      data: {
-        'spreadsheetId': await _getTargetSpreadsheetId(),
-        'currency': currency,
-        'items': [
-          for (final item in candidates)
-            {
-              'id': item.id,
-              'merchant': item.merchant,
-              'amount': item.amount,
-              'date': item.date,
-              'currency': item.currency,
-              'category': item.category,
-              'categoryId': item.categoryId,
-              'expenseType': item.expenseType,
-              'group': item.essentiality,
-              'importAnyway': item.importAnyway,
-              'manualReviewConfirmed': item.manualReviewConfirmed,
-            },
-        ],
-      },
-    );
-    await _fetchData();
-    final duplicates = (result['duplicates'] as List? ?? []).length;
-    return '${result['added'] ?? 0} expenses added; ${result['alreadyAdded'] ?? 0} already present.' +
-        (duplicates == 0
-            ? ''
-            : ' $duplicates possible duplicates remain. Check your Sheet before choosing Import anyway.');
-  }
-
   Future<void> _showDailyReminderSettings() async {
     await showDialog<void>(
       context: context,
@@ -3091,6 +2913,7 @@ class _DashboardScreenState extends State<DashboardScreen>
     final dashboardWidgets = _selectedTab != 0
         ? <Widget>[]
         : <Widget>[
+            const EmailRetirementBanner(),
             if (_needsDriveAccess)
               _DriveAccessBanner(onConnect: _connectGoogleDrive)
             else if (_isInitialSync && _transactions.isEmpty) ...[
@@ -3437,8 +3260,8 @@ class _DashboardScreenState extends State<DashboardScreen>
                 physics: const AlwaysScrollableScrollPhysics(),
                 padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
                 itemCount: sortedTransactions.isEmpty
-                    ? 7
-                    : 6 + sortedTransactions.length,
+                    ? 6
+                    : 5 + sortedTransactions.length,
                 itemBuilder: (context, index) {
                   switch (index) {
                     case 0:
@@ -3488,23 +3311,6 @@ class _DashboardScreenState extends State<DashboardScreen>
                         ),
                       );
                     case 4:
-                      return Column(
-                        children: [
-                          OutlinedButton.icon(
-                            key: const ValueKey('scan_email_expenses_button'),
-                            onPressed: () => _openEmailCapture(),
-                            icon: const Icon(Icons.mark_email_read_outlined),
-                            label: const Text(
-                              'Scan emails for missed expenses',
-                            ),
-                            style: OutlinedButton.styleFrom(
-                              minimumSize: const Size(double.infinity, 50),
-                            ),
-                          ),
-                          const Divider(height: 24),
-                        ],
-                      );
-                    case 5:
                       return Padding(
                         padding: const EdgeInsets.only(bottom: 8),
                         child: Text(
@@ -3512,13 +3318,13 @@ class _DashboardScreenState extends State<DashboardScreen>
                           style: Theme.of(context).textTheme.titleMedium,
                         ),
                       );
-                    case 6 when sortedTransactions.isEmpty:
+                    case 5 when sortedTransactions.isEmpty:
                       return const Padding(
                         padding: EdgeInsets.symmetric(vertical: 24),
                         child: Text('No expenses recorded yet.'),
                       );
                     default:
-                      final transaction = sortedTransactions[index - 6];
+                      final transaction = sortedTransactions[index - 5];
                       return ListTile(
                         contentPadding: EdgeInsets.zero,
                         leading: const Icon(Icons.receipt_long_outlined),
@@ -3677,12 +3483,13 @@ class _DashboardScreenState extends State<DashboardScreen>
                 ),
                 const Divider(height: 1),
                 ListTile(
-                  leading: const Icon(Icons.mark_email_read_outlined),
-                  title: const Text('Email & scan reminders'),
-                  subtitle: const Text(
-                    'Connect your mailbox and choose optional hourly or daily reminders. Scans start only in Expenses.',
+                  leading: const Icon(Icons.privacy_tip_outlined),
+                  title: const Text('Privacy update'),
+                  subtitle: const Text('Email scanning has been removed'),
+                  onTap: () => showDialog<void>(
+                    context: context,
+                    builder: (_) => const EmailRetirementNotice(),
                   ),
-                  onTap: () => _openEmailCapture(settingsMode: true),
                 ),
                 if (!kIsWeb) ...[
                   const Divider(height: 1),

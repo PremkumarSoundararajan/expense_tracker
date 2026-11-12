@@ -1,5 +1,4 @@
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -32,39 +31,16 @@ void main() {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(notifications, null);
   });
-  test('hourly reminder is a local notification with an Expenses navigation payload', () async {
-    await DailyReminderService().scheduleEmail(
-      'hourly',
-      const TimeOfDay(hour: 20, minute: 30),
-    );
-    final request = calls.singleWhere((c) => c.method == 'periodicallyShow');
-    expect(request.arguments['id'], DailyReminderService.emailNotificationId);
-    expect(request.arguments['payload'], 'email-review');
+  test('retirement cancels only the old scan reminder and never schedules mail access', () async {
+    await DailyReminderService().cancelRetiredEmailReminder();
+    final canceled = calls.where((c) => c.method == 'cancel').toList();
+    expect(canceled, hasLength(1));
+    expect(canceled.single.arguments['id'], 831);
     expect(
-      request.arguments['body'],
-      contains('Open Expenses to start a scan'),
+      calls.where(
+        (c) => c.method == 'periodicallyShow' || c.method == 'zonedSchedule',
+      ),
+      isEmpty,
     );
-    expect(calls.where((c) => c.method == 'zonedSchedule'), isEmpty);
   });
-  test(
-    'daily reminder and off do not replace the ordinary expense reminder',
-    () async {
-      final service = DailyReminderService();
-      await service.scheduleEmail(
-        'daily',
-        const TimeOfDay(hour: 8, minute: 15),
-      );
-      final request = calls.singleWhere((c) => c.method == 'zonedSchedule');
-      expect(request.arguments['id'], DailyReminderService.emailNotificationId);
-      expect(request.arguments['payload'], 'email-review');
-      calls.clear();
-      await service.scheduleEmail('off', const TimeOfDay(hour: 8, minute: 15));
-      expect(calls.length, 1);
-      expect(calls.single.method, 'cancel');
-      expect(
-        calls.single.arguments['id'],
-        DailyReminderService.emailNotificationId,
-      );
-    },
-  );
 }

@@ -12,11 +12,6 @@ class DailyReminderService {
   static const notificationId = 830;
   static const title = 'Pocket Ledger';
   static const body = "Time to log today's expenses in Pocket Ledger!";
-  static const emailBody =
-      "It's time to scan your emails for expenses you may have missed. Open Expenses to start a scan.";
-  static const emailNotificationId = 831;
-  void Function()? onEmailReview;
-  bool _handledLaunch = false;
   static const channelId = 'daily_expense_reminder';
   static const channelName = 'Daily expense reminder';
 
@@ -46,17 +41,7 @@ class DailyReminderService {
           requestSoundPermission: false,
         ),
       ),
-      onDidReceiveNotificationResponse: (response) {
-        if (response.payload == 'email-review') onEmailReview?.call();
-      },
     );
-    final launch = await _notifications.getNotificationAppLaunchDetails();
-    if (!_handledLaunch &&
-        launch?.didNotificationLaunchApp == true &&
-        launch?.notificationResponse?.payload == 'email-review') {
-      _handledLaunch = true;
-      onEmailReview?.call();
-    }
   }
 
   Future<bool> requestPermission() async {
@@ -139,61 +124,9 @@ class DailyReminderService {
     await _notifications.cancel(id: notificationId);
   }
 
-  Future<void> scheduleEmail(String frequency, TimeOfDay time) async {
-    if (!['off', 'hourly', 'daily'].contains(frequency)) {
-      throw ArgumentError('Invalid email reminder frequency');
-    }
+  /// Cancels the legacy scan reminder on devices upgrading from the experiment.
+  Future<void> cancelRetiredEmailReminder() async {
     await initialize();
-    await _notifications.cancel(id: emailNotificationId);
-    if (frequency == 'off') return;
-    const details = NotificationDetails(
-      android: AndroidNotificationDetails(
-        'email_scan_reminder',
-        'Email scan reminders',
-        channelDescription:
-            'Reminds you to start an email scan. Does not access email.',
-      ),
-      iOS: DarwinNotificationDetails(),
-    );
-    if (frequency == 'hourly') {
-      await _notifications.periodicallyShow(
-        id: emailNotificationId,
-        title: title,
-        body: emailBody,
-        repeatInterval: RepeatInterval.hourly,
-        notificationDetails: details,
-        androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
-        payload: 'email-review',
-      );
-      return;
-    }
-    final now = timezone.TZDateTime.now(timezone.local);
-    var date = timezone.TZDateTime(
-      timezone.local,
-      now.year,
-      now.month,
-      now.day,
-      time.hour,
-      time.minute,
-    );
-    if (!date.isAfter(now))
-      date = timezone.TZDateTime(
-        timezone.local,
-        now.year,
-        now.month,
-        now.day + 1,
-        time.hour,
-        time.minute,
-      );
-    await _notifications.zonedSchedule(
-      id: emailNotificationId,
-      title: title,
-      body: emailBody,
-      scheduledDate: date,
-      notificationDetails: details,
-      androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
-      matchDateTimeComponents: DateTimeComponents.time,
-      payload: 'email-review',
-    );
+    await _notifications.cancel(id: 831);
   }
 }
