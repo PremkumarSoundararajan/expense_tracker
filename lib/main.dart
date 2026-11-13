@@ -2188,6 +2188,11 @@ class _DashboardScreenState extends State<DashboardScreen>
         time: _dailyReminderTime,
         onEnabledChanged: _setDailyReminderEnabled,
         onTimeChanged: _setDailyReminderTime,
+        onSendTest: _dailyReminderService.sendTestNotification,
+        nextReminder: () => _dailyReminderService.nextScheduledReminder,
+        onCheckStatus: () => _dailyReminderService.reminderStatus(
+          enabled: _dailyReminderEnabled,
+        ),
       ),
     );
   }
