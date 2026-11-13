@@ -19,6 +19,9 @@ import 'services/spending_target_store.dart';
 import 'services/spending_target_service.dart';
 import 'widgets/spending_targets_screen.dart';
 import 'models/transaction.dart';
+import 'models/statement_source.dart';
+import 'services/google_sheet_statement_service.dart';
+import 'widgets/google_sheet_import_dialog.dart';
 import 'models/financial_baseline.dart';
 import 'models/expense_category.dart';
 import 'services/daily_reminder_service.dart';
@@ -36,6 +39,7 @@ import 'services/monthly_rollover_service.dart';
 import 'services/budget_comparison.dart';
 import 'services/spending_insights_service.dart';
 import 'services/statement_file_reader.dart';
+import 'services/statement_document_picker.dart';
 import 'services/suggested_budget_service.dart';
 import 'services/transaction_filter.dart';
 import 'services/worker_csv_sync_service.dart';
@@ -1756,14 +1760,16 @@ class _DashboardScreenState extends State<DashboardScreen>
     }
   }
 
-  Future<void> _uploadStatementToWorker() async {
-    if (_isWorkerSyncing) return;
-
-    setState(() {
-      _isWorkerSyncing = true;
-      _workerSyncStatus = 'Choose a statement file...';
-    });
-    try {
+  Future<PreparedStatement?> _pickStatementFile() async {
+    late final String fileName;
+    late final List<int> bytes;
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
+      setState(() => _workerSyncStatus = 'Selecting and reading statement...');
+      final document = await const StatementDocumentPicker().pick();
+      if (!mounted || document == null) return null;
+      fileName = document.name;
+      bytes = document.bytes;
+    } else {
       final file = await FilePicker.pickFile(
         dialogTitle: 'Choose a statement file',
         // Cloud providers may expose spreadsheets using provider-specific
@@ -1780,16 +1786,13 @@ class _DashboardScreenState extends State<DashboardScreen>
         },
       );
       debugPrint('[import] picked: ${file?.name} ext=${file?.extension}');
-      if (!mounted) return;
+      if (!mounted) return null;
       if (file == null) {
-        _showMessage(
-          'The file picker closed without returning a file. Please choose the statement again.',
-        );
-        return;
+        return null;
       }
 
       setState(() => _workerSyncStatus = 'Reading ${file.name}...');
-      late final List<int> bytes;
+      fileName = file.name;
       try {
         bytes = await readPickedStatementFile(file);
       } catch (error) {
@@ -1799,75 +1802,128 @@ class _DashboardScreenState extends State<DashboardScreen>
             'Try selecting it again or downloading it locally. $error',
           );
         }
-        return;
+        return null;
       }
-      if (!mounted) return;
-      debugPrint('[import] read ${bytes.length} bytes');
-      setState(() => _workerSyncStatus = 'Preparing statement...');
-      if (bytes.isEmpty) {
-        _showMessage('Could not read the selected file. Please try again.');
-        return;
+    }
+    if (!mounted) return null;
+    debugPrint('[import] read ${bytes.length} bytes');
+    setState(() => _workerSyncStatus = 'Preparing statement...');
+    if (bytes.isEmpty) {
+      _showMessage('Could not read the selected file. Please try again.');
+      return null;
+    }
+
+    final extension = fileName.split('.').last.toLowerCase();
+    if (extension == 'gsheet') {
+      final id = spreadsheetIdFromShortcut(bytes);
+      return _readGoogleSheetStatement(sourceId: id, sourceName: fileName);
+    }
+    var csv = '';
+    String? worksheetNote;
+    if (extension == 'csv') {
+      csv = utf8.decode(bytes, allowMalformed: true).replaceFirst('\uFEFF', '');
+      if (csv.trim().isEmpty) {
+        _showMessage('The selected CSV file contains no readable data.');
+        return null;
+      }
+    } else if (extension == 'xlsx' || extension == 'xls') {
+      final workbook = Excel.decodeBytes(bytes);
+      final sheetNames = workbook.tables.keys.toList();
+      if (sheetNames.isEmpty) {
+        _showMessage('This Excel file has no readable worksheets.');
+        return null;
+      }
+      final primarySheetName = sheetNames.first;
+      final primarySheet = workbook.tables[primarySheetName];
+      if (primarySheet == null) {
+        _showMessage('Could not read the first worksheet in this Excel file.');
+        return null;
       }
 
-      final extension = file.extension?.toLowerCase();
-      var csv = '';
-      String? worksheetNote;
-      if (extension == 'csv') {
-        csv = utf8
-            .decode(bytes, allowMalformed: true)
-            .replaceFirst('\uFEFF', '');
-        if (csv.trim().isEmpty) {
-          _showMessage('The selected CSV file contains no readable data.');
-          return;
-        }
-      } else if (extension == 'xlsx' || extension == 'xls') {
-        final workbook = Excel.decodeBytes(bytes);
-        final sheetNames = workbook.tables.keys.toList();
-        if (sheetNames.isEmpty) {
-          _showMessage('This Excel file has no readable worksheets.');
-          return;
-        }
-        final primarySheetName = sheetNames.first;
-        final primarySheet = workbook.tables[primarySheetName];
-        if (primarySheet == null) {
-          _showMessage(
-            'Could not read the first worksheet in this Excel file.',
-          );
-          return;
-        }
-
-        final rows = primarySheet.rows
-            .map((row) => row.map((cell) => cell?.displayText ?? '').toList())
-            .where((row) => row.any((value) => value.trim().isNotEmpty))
-            .map((row) {
-              while (row.isNotEmpty && row.last.trim().isEmpty) {
-                row.removeLast();
-              }
-              return row;
-            })
-            .toList();
-        if (rows.isEmpty) {
-          _showMessage(
-            'The first worksheet in this Excel file has no readable data.',
-          );
-          return;
-        }
-        if (rows.length < 2) {
-          _showMessage(
-            'The first worksheet contains headers but no transaction rows.',
-          );
-          return;
-        }
-        csv = buildCsvFromRows(rows);
-        if (sheetNames.length > 1) {
-          worksheetNote =
-              ' Used the first worksheet, "$primarySheetName"; '
-              '${sheetNames.length} worksheets were found.';
-        }
-      } else {
-        _showMessage('Choose a CSV, XLSX, or XLS statement file.');
-        return;
+      final rows = primarySheet.rows
+          .map((row) => row.map((cell) => cell?.displayText ?? '').toList())
+          .where((row) => row.any((value) => value.trim().isNotEmpty))
+          .map((row) {
+            while (row.isNotEmpty && row.last.trim().isEmpty) {
+              row.removeLast();
+            }
+            return row;
+          })
+          .toList();
+      if (rows.isEmpty) {
+        _showMessage(
+          'The first worksheet in this Excel file has no readable data.',
+        );
+        return null;
       }
+      if (rows.length < 2) {
+        _showMessage(
+          'The first worksheet contains headers but no transaction rows.',
+        );
+        return null;
+      }
+      csv = buildCsvFromRows(rows);
+      if (sheetNames.length > 1) {
+        worksheetNote =
+            ' Used the first worksheet, "$primarySheetName"; '
+            '${sheetNames.length} worksheets were found.';
+      }
+    } else {
+      _showMessage(
+        'Choose a CSV, XLSX, XLS, or Google Sheets (.gsheet) statement.',
+      );
+      return null;
+    }
+
+    return PreparedStatement(
+      name: fileName,
+      csv: csv,
+      worksheetNote: worksheetNote,
+    );
+  }
+
+  Future<PreparedStatement?> _readGoogleSheetStatement({
+    required String sourceId,
+    required String sourceName,
+  }) async {
+    final client = await _googleSignIn.authenticatedClient();
+    if (!mounted) {
+      client?.close();
+      return null;
+    }
+    if (client == null) {
+      _showMessage('Reconnect your Google account, then try again.');
+      return null;
+    }
+    try {
+      final service = GoogleSheetStatementService(sheets.SheetsApi(client));
+      return await showDialog<PreparedStatement>(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => GoogleSheetImportDialog(
+          initialSource: sourceId,
+          sourceName: sourceName,
+          loadWorkbook: service.loadWorkbook,
+          readWorksheet: service.readWorksheet,
+        ),
+      );
+    } finally {
+      client.close();
+    }
+  }
+
+  Future<void> _uploadStatementToWorker() async {
+    if (_isWorkerSyncing) return;
+
+    setState(() {
+      _isWorkerSyncing = true;
+      _workerSyncStatus = 'Selecting statement...';
+    });
+    try {
+      final statement = await _pickStatementFile();
+      if (!mounted || statement == null) return;
+      final csv = statement.csv;
+      final worksheetNote = statement.worksheetNote;
 
       setState(() => _workerSyncStatus = 'Checking Google Drive access...');
       final hasPermission = await _drivePermissionService
@@ -1914,7 +1970,7 @@ class _DashboardScreenState extends State<DashboardScreen>
       if (preview.rows.isEmpty) {
         _showMessage(
           '${spreadsheetCreated ? 'A replacement spreadsheet was created. ' : ''}'
-          'No expense transactions were found in ${file.name}. Nothing was imported.',
+          'No expense transactions were found in ${statement.name}. Nothing was imported.',
         );
         return;
       }
@@ -1923,7 +1979,7 @@ class _DashboardScreenState extends State<DashboardScreen>
         context: context,
         barrierDismissible: false,
         builder: (_) => StatementReviewDialog(
-          fileName: file.name,
+          fileName: statement.name,
           preview: preview,
           currencySymbol: _currency,
           categories: _activeExpenseCategories,
@@ -1992,11 +2048,11 @@ class _DashboardScreenState extends State<DashboardScreen>
       final updatedCount = result['updated'] as int? ?? 0;
       final outcome = [
         if (importedCount > 0)
-          'Imported $importedCount transaction(s) from ${file.name}.',
+          'Imported $importedCount transaction(s) from ${statement.name}.',
         if (updatedCount > 0)
           'Updated classifications on $updatedCount existing transaction(s).',
         if (importedCount == 0 && updatedCount == 0)
-          'No new or changed transactions were imported from ${file.name}.',
+          'No new or changed transactions were imported from ${statement.name}.',
       ].join(' ');
       _showMessage(
         '$outcome'
@@ -3294,71 +3350,96 @@ class _DashboardScreenState extends State<DashboardScreen>
                 physics: const AlwaysScrollableScrollPhysics(),
                 padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
                 itemCount: sortedTransactions.isEmpty
-                    ? 6
-                    : 5 + sortedTransactions.length,
+                    ? 3
+                    : 2 + sortedTransactions.length,
                 itemBuilder: (context, index) {
                   switch (index) {
                     case 0:
-                      return const Text(
-                        'Expenses',
-                        style: TextStyle(
-                          fontSize: 22,
-                          fontWeight: FontWeight.bold,
+                      return Container(
+                        key: const ValueKey('expenses-import-panel'),
+                        margin: const EdgeInsets.only(bottom: 12),
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: Theme.of(context)
+                              .colorScheme
+                              .surfaceContainerLow,
+                          border: Border.all(
+                            color: Theme.of(context).colorScheme.outlineVariant,
+                          ),
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            FilledButton.icon(
+                              key: const ValueKey(
+                                'import_reconcile_statements_button',
+                              ),
+                              onPressed: _isWorkerSyncing
+                                  ? null
+                                  : _uploadStatementToWorker,
+                              icon: _isWorkerSyncing
+                                  ? const SizedBox(
+                                      width: 18,
+                                      height: 18,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                      ),
+                                    )
+                                  : const Icon(Icons.sync_alt),
+                              label: Text(
+                                _isWorkerSyncing
+                                    ? _workerSyncStatus ??
+                                          'Preparing statement...'
+                                    : 'Import Statements',
+                                textAlign: TextAlign.center,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              style: FilledButton.styleFrom(
+                                minimumSize: const Size(double.infinity, 52),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 16,
+                                  vertical: 12,
+                                ),
+                                shape: const StadiumBorder(),
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            Text(
+                              'CSV, Excel & Google Sheets · Duplicates checked\n'
+                              'You can review/edit before import.',
+                              style: Theme.of(context).textTheme.bodySmall
+                                  ?.copyWith(
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .onSurfaceVariant,
+                                  ),
+                            ),
+                          ],
                         ),
                       );
                     case 1:
-                      return const Padding(
-                        padding: EdgeInsets.only(top: 4),
-                        child: Text(
-                          'Review transactions and import or reconcile statements.',
-                        ),
-                      );
-                    case 2:
-                      return const SizedBox(height: 14);
-                    case 3:
                       return Padding(
-                        padding: const EdgeInsets.only(bottom: 8),
-                        child: FilledButton.icon(
-                          key: const ValueKey(
-                            'import_reconcile_statements_button',
-                          ),
-                          onPressed: _isWorkerSyncing
-                              ? null
-                              : _uploadStatementToWorker,
-                          icon: _isWorkerSyncing
-                              ? const SizedBox(
-                                  width: 18,
-                                  height: 18,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                  ),
-                                )
-                              : const Icon(Icons.sync_alt),
-                          label: Text(
-                            _isWorkerSyncing
-                                ? _workerSyncStatus ?? 'Preparing statement...'
-                                : 'Import & Reconcile Statements',
-                          ),
-                          style: FilledButton.styleFrom(
-                            minimumSize: const Size(double.infinity, 50),
-                          ),
-                        ),
-                      );
-                    case 4:
-                      return Padding(
-                        padding: const EdgeInsets.only(bottom: 8),
+                        padding: const EdgeInsets.only(bottom: 12),
                         child: Text(
-                          '${_transactions.length} transactions',
-                          style: Theme.of(context).textTheme.titleMedium,
+                          '${_transactions.length} ${_transactions.length == 1 ? 'transaction' : 'transactions'}',
+                          textAlign: TextAlign.right,
+                          style: Theme.of(context).textTheme.bodySmall
+                              ?.copyWith(
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .onSurfaceVariant,
+                              ),
                         ),
                       );
-                    case 5 when sortedTransactions.isEmpty:
+                    case 2 when sortedTransactions.isEmpty:
                       return const Padding(
                         padding: EdgeInsets.symmetric(vertical: 24),
                         child: Text('No expenses recorded yet.'),
                       );
                     default:
-                      final transaction = sortedTransactions[index - 5];
+                      final transaction = sortedTransactions[index - 2];
                       return ListTile(
                         contentPadding: EdgeInsets.zero,
                         leading: const Icon(Icons.receipt_long_outlined),

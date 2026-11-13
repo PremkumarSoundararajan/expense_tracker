@@ -1,5 +1,7 @@
 # Import first, classify later
 
+Native Google Sheets: Import Statements opens device selection directly, without a source-options dialog. Android uses ACTION_OPEN_DOCUMENT without CATEGORY_OPENABLE, allowing Drive virtual documents. It requests an XLSX/CSV export using openTypedAssetFileDescriptor, reads off the UI thread, and caps downloads at 20 MB. Access is limited to the selected document's URI read grant. Computers can select synced .gsheet shortcuts: the app extracts only the embedded Sheets ID and loads worksheets with the existing authenticated reader. No link entry is required. Local file choosers cannot browse cloud-only Sheets on the web; a Google Picker integration is separate future work. Sources are never changed and source IDs never replace the destination ledger. Both paths retain confirmation, duplicate checks and classification.
+
 Statement confirmation shows dates, descriptions, amounts and duplicate status by default. No classification is required. Optional individual category/type edits and existing duplicate safeguards remain available. Unedited duplicate rows are skipped even if an inherited merchant category differs. Successful imports offer Classify merchants, opening Financial Baseline's remaining merchant view. Individual transaction overrides remain higher priority than merchant choices.
 
 The existing API already reuses saved merchant categories and expense types for future imports. Essentiality is inherited from the saved merchant rule when transactions are loaded. No new Gmail code or scope is involved.

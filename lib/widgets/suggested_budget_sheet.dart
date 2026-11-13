@@ -43,6 +43,11 @@ class SuggestedBudgetBreakdown extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final mediaQuery = MediaQuery.of(context);
+    final months = suggestion.completedMonths.clamp(
+      0,
+      suggestedBudgetLookbackMonths,
+    );
+    final coverage = suggestion.historyCoveragePercent;
 
     return SafeArea(
       top: false,
@@ -56,28 +61,35 @@ class SuggestedBudgetBreakdown extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              'Suggested monthly budget',
-              style: theme.textTheme.titleLarge?.copyWith(
-                fontWeight: FontWeight.bold,
-              ),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Suggested monthly budget',
+                    style: theme.textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+                Tooltip(
+                  message: 'Uses Regular spending from up to six completed months, plus a 10% buffer. Unknown spending is excluded; more classification may change the suggestion.',
+                  triggerMode: TooltipTriggerMode.tap,
+                  child: const Padding(
+                    padding: EdgeInsets.all(8),
+                    child: Icon(Icons.info_outline, size: 20),
+                  ),
+                ),
+              ],
             ),
             const SizedBox(height: 4),
             Text(
-              'Based on ${suggestion.completedMonths} completed months of '
-              'regular spending, plus a '
-              '${(suggestedBudgetBufferRate * 100).round()}% misc buffer.',
+              coverage == null
+                  ? 'Based on $months months of regular spending.'
+                  : 'Based on $months months · ${coverage.toStringAsFixed(1)}% of spending classified.',
               style: theme.textTheme.bodySmall?.copyWith(
                 color: theme.colorScheme.onSurfaceVariant,
               ),
             ),
-            if (suggestion.unknownCount > 0)
-              Text(
-                'Historical Expense Types: ${suggestion.historyCoveragePercent == null ? '' : '${suggestion.historyCoveragePercent!.toStringAsFixed(1)}% classified · '}'
-                '$currencySymbol${suggestion.unknownAmount.toStringAsFixed(2)} unknown. '
-                'Unknown spending is excluded from this suggestion; the amount may change after more classification.',
-                style: theme.textTheme.bodySmall,
-              ),
             if (suggestion.unknownCount > 0 && onReviewUnclassified != null)
               TextButton(
                 onPressed: onReviewUnclassified,
@@ -85,17 +97,17 @@ class SuggestedBudgetBreakdown extends StatelessWidget {
               ),
             const SizedBox(height: 16),
             _SummaryRow(
-              label: 'Recurring items',
+              label: 'Regular recurring expenses',
               amount: suggestion.recurringTotal,
               currencySymbol: currencySymbol,
             ),
             _SummaryRow(
-              label: 'Misc average',
+              label: 'Other regular spending',
               amount: suggestion.miscAverage,
               currencySymbol: currencySymbol,
             ),
             _SummaryRow(
-              label: 'Misc buffer',
+              label: 'Buffer (${(suggestedBudgetBufferRate * 100).round()}%)',
               amount: suggestion.buffer,
               currencySymbol: currencySymbol,
             ),
