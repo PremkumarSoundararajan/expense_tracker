@@ -3,6 +3,7 @@ workflows:
     name: iOS signed TestFlight build
     instance_type: mac_mini_m2
     max_build_duration: 60
+
     environment:
       flutter: 3.47.8
       xcode: latest
@@ -11,23 +12,36 @@ workflows:
         - pocket_ledger_ios
       vars:
         BUNDLE_ID: "com.premkumar.pocketledger"
+
     cache:
       cache_paths:
         - $HOME/.pub-cache
         - $HOME/Library/Caches/org.swift.swiftpm
+
     scripts:
       - name: Check release configuration before building
         script: |
           set -euo pipefail
-          : "${GOOGLE_IOS_CLIENT_ID:?Set the Google iOS OAuth client in pocket_ledger_ios}"
+          : "${APP_STORE_CONNECT_ISSUER_ID:?Set APP_STORE_CONNECT_ISSUER_ID in app_store_credentials}"
+          : "${APP_STORE_CONNECT_KEY_IDENTIFIER:?Set APP_STORE_CONNECT_KEY_IDENTIFIER in app_store_credentials}"
+          : "${APP_STORE_CONNECT_PRIVATE_KEY:?Set APP_STORE_CONNECT_PRIVATE_KEY in app_store_credentials}"
+          : "${CERTIFICATE_PRIVATE_KEY:?Set CERTIFICATE_PRIVATE_KEY in app_store_credentials}"
+          : "${GOOGLE_IOS_CLIENT_ID:?Set GOOGLE_IOS_CLIENT_ID in pocket_ledger_ios}"
           : "${APP_STORE_APPLE_ID:?Set the numeric App Store Connect app ID in pocket_ledger_ios}"
-          [[ "$APP_STORE_APPLE_ID" =~ ^[0-9]+$ ]] || { echo 'APP_STORE_APPLE_ID must be numeric'; exit 1; }
+          [[ "$APP_STORE_APPLE_ID" =~ ^[0-9]+$ ]] || {
+            echo 'APP_STORE_APPLE_ID must be numeric'
+            exit 1
+          }
+
       - name: Resolve Flutter dependencies
         script: flutter pub get --enforce-lockfile
+
       - name: Configure native Google sign-in
         script: dart run tool/configure_ios.dart
+
       - name: Analyze Dart errors
         script: flutter analyze --no-pub --no-fatal-infos --no-fatal-warnings
+
       - name: Test sign-in and native entry points
         script: >-
           flutter test --no-pub
@@ -37,15 +51,13 @@ workflows:
           test/google_drive_permission_service_test.dart
           test/statement_file_reader_test.dart
           test/daily_reminder_settings_dialog_test.dart
-      - name: Debug credentials
-        script: |
-          echo "Issuer length: ${#APP_STORE_CONNECT_ISSUER_ID}"
-          echo "Key ID length: ${#APP_STORE_CONNECT_KEY_IDENTIFIER}"
-          echo "Key ID: $APP_STORE_CONNECT_KEY_IDENTIFIER"
-          echo "$APP_STORE_CONNECT_PRIVATE_KEY" | head -1
-          echo "$APP_STORE_CONNECT_PRIVATE_KEY" | tail -1
+
+      - name: Initialize signing keychain
+        script: keychain initialize
+
       - name: Fetch Apple signing files automatically
         script: |
+          set -euo pipefail
           app-store-connect fetch-signing-files "$BUNDLE_ID" \
             --issuer-id "$APP_STORE_CONNECT_ISSUER_ID" \
             --key-id "$APP_STORE_CONNECT_KEY_IDENTIFIER" \
@@ -53,24 +65,52 @@ workflows:
             --certificate-key "$CERTIFICATE_PRIVATE_KEY" \
             --type IOS_APP_STORE \
             --create
+
+      - name: Import signing certificates
+        script: keychain add-certificates
+
       - name: Apply Apple signing profiles
         script: xcode-project use-profiles
+
       - name: Build signed IPA with a new build number
         script: |
           set -euo pipefail
           latest=$(app-store-connect get-latest-testflight-build-number "$APP_STORE_APPLE_ID")
           latest=${latest:-0}
-          [[ "$latest" =~ ^[0-9]+$ ]] || { echo 'Could not resolve a numeric TestFlight build number'; exit 1; }
+
+          [[ "$latest" =~ ^[0-9]+$ ]] || {
+            echo 'Could not resolve a numeric TestFlight build number'
+            exit 1
+          }
+
           build_number=$((latest + 1))
           ci_number=$((${PROJECT_BUILD_NUMBER:-0} + 18))
-          if (( ci_number > build_number )); then build_number=$ci_number; fi
+          if (( ci_number > build_number )); then
+            build_number=$ci_number
+          fi
+
           flutter build ipa --release --no-pub \
             --build-number="$build_number" \
             --export-options-plist=/Users/builder/export_options.plist
+
+      - name: Verify installable IPA exists
+        script: |
+          set -euo pipefail
+          shopt -s nullglob
+          ipa_files=(build/ios/ipa/*.ipa)
+
+          if (( ${#ipa_files[@]} == 0 )); then
+            echo 'IPA export failed: no IPA was produced. Check the export log above.'
+            exit 1
+          fi
+
+          printf 'Ready for upload: %s\n' "${ipa_files[@]}"
+
     artifacts:
       - build/ios/ipa/*.ipa
       - build/ios/archive/*.xcarchive/dSYMs/*.dSYM
       - /tmp/xcodebuild_logs/*.log
+
     publishing:
       app_store_connect:
         api_key: $APP_STORE_CONNECT_PRIVATE_KEY
