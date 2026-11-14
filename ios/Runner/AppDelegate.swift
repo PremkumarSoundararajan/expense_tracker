@@ -62,7 +62,10 @@ import UserNotifications
       ) { signInResult, error in
         self.emailSignInInProgress = false
         if let error = error as NSError? {
-          if error.domain == kGIDSignInErrorDomain && error.code == GIDSignInErrorCode.canceled.rawValue {
+          // GoogleSignIn 8.x declares kGIDSignInErrorCodeCanceled as -5.
+          // Match NSError domain/code without relying on Swift enum import naming.
+          let googleSignInCanceledCode = -5
+          if error.domain == kGIDSignInErrorDomain && error.code == googleSignInCanceledCode {
             result(false)
           } else {
             result(FlutterError(code: "google_sign_in", message: error.localizedDescription, details: nil))
