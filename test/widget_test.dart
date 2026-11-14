@@ -31,8 +31,6 @@ void main() {
   });
 
   testWidgets('iOS email hint is sent to native sign-in and cancellation allows retry', (tester) async {
-    debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
-    addTearDown(() => debugDefaultTargetPlatformOverride = null);
     const channel = MethodChannel('pocket_ledger/google_account');
     final calls = <MethodCall>[];
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
@@ -53,16 +51,14 @@ void main() {
     expect(calls.single.arguments, {'email': 'review@example.com'});
     expect(find.text('Sign in with Google'), findsOneWidget);
     expect(tester.takeException(), isNull);
-  });
+  }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
 
   testWidgets('Android does not expose the iOS email hint flow', (tester) async {
-    debugDefaultTargetPlatformOverride = TargetPlatform.android;
-    addTearDown(() => debugDefaultTargetPlatformOverride = null);
     await tester.pumpWidget(PocketLedgerApp(googleSignIn: GoogleSignIn()));
     await tester.pumpAndSettle();
     expect(find.text('Use a different Google account'), findsNothing);
     expect(find.text('Sign in with Google'), findsOneWidget);
-  });
+  }, variant: TargetPlatformVariant.only(TargetPlatform.android));
 
   testWidgets('shows the sign-in screen when there is no saved user', (
     WidgetTester tester,
