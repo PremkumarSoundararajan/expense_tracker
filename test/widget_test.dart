@@ -30,7 +30,7 @@ void main() {
         .setMockMethodCallHandler(_googleSignInChannel, null);
   });
 
-  testWidgets('iOS email hint is sent to native sign-in and cancellation allows retry', (tester) async {
+  testWidgets('iOS main sign-in uses email hint and cancellation allows retry', (tester) async {
     const channel = MethodChannel('pocket_ledger/google_account');
     final calls = <MethodCall>[];
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
@@ -42,7 +42,8 @@ void main() {
         .setMockMethodCallHandler(channel, null));
     await tester.pumpWidget(PocketLedgerApp(googleSignIn: GoogleSignIn()));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Use a different Google account'));
+    expect(find.text('Use a different Google account'), findsNothing);
+    await tester.tap(find.text('Sign in with Google'));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField), 'review@example.com');
     await tester.tap(find.text('Continue to Google'));
@@ -50,13 +51,30 @@ void main() {
     expect(calls.single.method, 'signInWithEmail');
     expect(calls.single.arguments, {'email': 'review@example.com'});
     expect(find.text('Sign in with Google'), findsOneWidget);
+    await tester.tap(find.text('Sign in with Google'));
+    await tester.pumpAndSettle();
+    expect(find.byType(TextField), findsOneWidget);
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+    expect(calls, hasLength(1));
+    expect(find.text('Sign in with Google'), findsOneWidget);
     expect(tester.takeException(), isNull);
   }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
 
   testWidgets('Android does not expose the iOS email hint flow', (tester) async {
+    final calls = <String>[];
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(_googleSignInChannel, (call) async {
+      calls.add(call.method);
+      return null;
+    });
     await tester.pumpWidget(PocketLedgerApp(googleSignIn: GoogleSignIn()));
     await tester.pumpAndSettle();
     expect(find.text('Use a different Google account'), findsNothing);
+    await tester.tap(find.text('Sign in with Google'));
+    await tester.pumpAndSettle();
+    expect(calls, contains('signIn'));
+    expect(find.byType(TextField), findsNothing);
     expect(find.text('Sign in with Google'), findsOneWidget);
   }, variant: TargetPlatformVariant.only(TargetPlatform.android));
 

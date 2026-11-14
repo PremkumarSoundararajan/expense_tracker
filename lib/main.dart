@@ -209,6 +209,10 @@ class _AuthGateState extends State<AuthGate> {
   }
 
   Future<void> _handleSignIn() async {
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS) {
+      await _signInWithEmail();
+      return;
+    }
     try {
       setState(() => _isLoading = true);
       await _signIn.signIn();
@@ -227,7 +231,7 @@ class _AuthGateState extends State<AuthGate> {
     final selected = await showDialog<String>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('Use a different Google account'),
+        title: const Text('Sign in with Google'),
         content: TextField(
           autofocus: true,
           keyboardType: TextInputType.emailAddress,
@@ -358,11 +362,6 @@ class _AuthGateState extends State<AuthGate> {
                     ),
                   ),
                 ),
-                if (!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS)
-                  TextButton(
-                    onPressed: _signInWithEmail,
-                    child: const Text('Use a different Google account'),
-                  ),
               ],
             ),
           ),
