@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:file_picker/file_picker.dart';
 
 import 'services/statement_file_picker_options.dart';
@@ -221,6 +222,65 @@ class _AuthGateState extends State<AuthGate> {
     }
   }
 
+  Future<void> _signInWithEmail() async {
+    String email = '';
+    final selected = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Use a different Google account'),
+        content: TextField(
+          autofocus: true,
+          keyboardType: TextInputType.emailAddress,
+          autocorrect: false,
+          textCapitalization: TextCapitalization.none,
+          decoration: const InputDecoration(
+            labelText: 'Google account email',
+            helperText: 'Enter your password only on Google’s page.',
+            helperMaxLines: 2,
+          ),
+          onChanged: (value) => email = value.trim(),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () {
+              if (RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$').hasMatch(email)) {
+                Navigator.pop(dialogContext, email);
+              } else {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Enter your full Google account email address.')),
+                );
+              }
+            },
+            child: const Text('Continue to Google'),
+          ),
+        ],
+      ),
+    );
+    if (!mounted || selected == null) return;
+    setState(() => _isLoading = true);
+    try {
+      final completed = await const MethodChannel('pocket_ledger/google_account')
+          .invokeMethod<bool>('signInWithEmail', {'email': selected});
+      if (completed == true) {
+        final account = await _signIn.signInSilently(suppressErrors: false);
+        if (account == null) throw StateError('Google sign-in could not be restored. Please try again.');
+        if (mounted) setState(() => _currentUser = account);
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Sign in failed: $error')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
@@ -298,6 +358,11 @@ class _AuthGateState extends State<AuthGate> {
                     ),
                   ),
                 ),
+                if (!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS)
+                  TextButton(
+                    onPressed: _signInWithEmail,
+                    child: const Text('Use a different Google account'),
+                  ),
               ],
             ),
           ),

@@ -8,6 +8,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -27,6 +28,40 @@ void main() {
   tearDown(() {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(_googleSignInChannel, null);
+  });
+
+  testWidgets('iOS email hint is sent to native sign-in and cancellation allows retry', (tester) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
+    const channel = MethodChannel('pocket_ledger/google_account');
+    final calls = <MethodCall>[];
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (call) async {
+      calls.add(call);
+      return false; // User cancels Google's window.
+    });
+    addTearDown(() => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, null));
+    await tester.pumpWidget(PocketLedgerApp(googleSignIn: GoogleSignIn()));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Use a different Google account'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField), 'review@example.com');
+    await tester.tap(find.text('Continue to Google'));
+    await tester.pumpAndSettle();
+    expect(calls.single.method, 'signInWithEmail');
+    expect(calls.single.arguments, {'email': 'review@example.com'});
+    expect(find.text('Sign in with Google'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('Android does not expose the iOS email hint flow', (tester) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.android;
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
+    await tester.pumpWidget(PocketLedgerApp(googleSignIn: GoogleSignIn()));
+    await tester.pumpAndSettle();
+    expect(find.text('Use a different Google account'), findsNothing);
+    expect(find.text('Sign in with Google'), findsOneWidget);
   });
 
   testWidgets('shows the sign-in screen when there is no saved user', (
