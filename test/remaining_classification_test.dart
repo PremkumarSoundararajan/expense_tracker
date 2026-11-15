@@ -188,6 +188,10 @@ void main() {
       };
       await tester.pumpWidget(MaterialApp(home: Scaffold(body: child)));
       await tester.pumpAndSettle();
+      if (surface == 'monthly') {
+        await tester.tap(find.text('Budget details'));
+        await tester.pumpAndSettle();
+      }
       final reviewLink = surface == 'monthly'
           ? find.textContaining('unclassified · Review')
           : find.text('Classify remaining expenses');

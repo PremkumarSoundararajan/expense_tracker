@@ -26,12 +26,14 @@ class FinancialBaselineScreen extends StatefulWidget {
     this.onTargetsSaved,
     this.historyComplete = false,
     this.insightsOnly = false,
+    this.onClassifyExpenses,
   });
 
   final SpendingTargetStore? targetStore;
   final Future<String> Function()? onTargetsSaved;
   final bool historyComplete;
   final bool insightsOnly;
+  final VoidCallback? onClassifyExpenses;
   final List<Transaction> transactions;
   final List<FinancialBaselineMapping> initialMappings;
   final List<ExpenseCategory> categories;
@@ -1043,6 +1045,51 @@ class _FinancialBaselineScreenState extends State<FinancialBaselineScreen> {
     FinancialBaselineSummary summary,
     ColorScheme colors,
   ) {
+    if (summary.trackedSpending <= 0 || summary.classifiedAmount <= 0) {
+      final empty = summary.trackedSpending <= 0;
+      return Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Align(
+              alignment: Alignment.centerRight,
+              child: IconButton(
+                tooltip: 'Close insights',
+                onPressed: () => Navigator.of(context).pop(),
+                icon: const Icon(Icons.close),
+              ),
+            ),
+            Text(
+              empty
+                  ? 'No spending data yet'
+                  : "Savings insights aren't ready yet",
+              style: Theme.of(context).textTheme.titleLarge,
+            ),
+            const SizedBox(height: 12),
+            Text(
+              empty
+                  ? 'Add expenses or import a statement to start exploring savings insights.'
+                  : 'Classify your expenses in Financial Baseline to see savings insights.',
+            ),
+            if (!empty) ...[
+              const SizedBox(height: 16),
+              FilledButton(
+                onPressed: () {
+                  if (widget.onClassifyExpenses != null) {
+                    widget.onClassifyExpenses!();
+                  } else {
+                    Navigator.of(context).pop();
+                  }
+                },
+                child: const Text('Classify Expenses'),
+              ),
+            ],
+          ],
+        ),
+      );
+    }
     final readiness = baselineInsightReadiness(summary.classifiedPercentage);
     final now = DateTime.now();
     final month = DateTime(now.year, now.month);
@@ -1080,10 +1127,12 @@ class _FinancialBaselineScreenState extends State<FinancialBaselineScreen> {
             Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Text(
-                  title,
-                  style: Theme.of(context).textTheme.labelMedium
-                      ?.copyWith(fontWeight: FontWeight.w700, color: color),
+                Flexible(
+                  child: Text(
+                    title,
+                    style: Theme.of(context).textTheme.labelMedium
+                        ?.copyWith(fontWeight: FontWeight.w700, color: color),
+                  ),
                 ),
                 if (onTap != null) ...[
                   const SizedBox(width: 5),
@@ -1142,12 +1191,16 @@ class _FinancialBaselineScreenState extends State<FinancialBaselineScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  '${summary.classifiedPercentage.toStringAsFixed(0)}% classified · ${formatFullCurrency(summary.unclassifiedMonthlyAverage, widget.currencySymbol)} / mo unclassified',
+                  'Based on ${summary.classifiedPercentage.toStringAsFixed(1)}% of spending classified by Essentiality.',
                   key: const ValueKey('insights-classification-status'),
                   style: Theme.of(context).textTheme.titleSmall
                       ?.copyWith(fontWeight: FontWeight.w700),
                 ),
                 const SizedBox(height: 6),
+                Text(
+                  '${formatFullCurrency(summary.classifiedAmount, widget.currencySymbol)} classified / ${formatFullCurrency(summary.trackedSpending, widget.currencySymbol)} eligible spending. Unknown and Excluded spending are not counted as Essential or Flexible.',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
                 ClipRRect(
                   borderRadius: BorderRadius.circular(8),
                   child: LinearProgressIndicator(

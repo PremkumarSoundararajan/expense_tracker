@@ -404,90 +404,102 @@ void main() {
     },
   );
 
-  testWidgets(
-    'insights explain classification completeness at each threshold',
-    (tester) async {
-      for (final percentage in [0, 49, 50, 79, 80, 100]) {
-        var writes = 0;
-        final transactions = <Transaction>[];
-        final mappings = <FinancialBaselineMapping>[];
-        if (percentage > 0) {
-          transactions.add(
-            _transaction(
-              DateTime(2025, 1),
-              percentage.toDouble(),
-              'KNOWN MERCHANT',
-            ),
-          );
-          mappings.add(
-            const FinancialBaselineMapping(
-              merchantFingerprint: 'KNOWN MERCHANT',
-              group: BaselineGroup.essential,
-            ),
-          );
-        }
-        if (percentage < 100) {
-          transactions.add(
-            _transaction(
-              DateTime(2025, 1),
-              (100 - percentage).toDouble(),
-              'OTHER VENDOR',
-            ),
-          );
-        }
-        await tester.pumpWidget(
-          MaterialApp(
-            home: FinancialBaselineScreen(
-              key: ValueKey('insight-screen-$percentage'),
-              transactions: transactions,
-              initialMappings: mappings,
-              currencySymbol: r'$',
-              onMappingsSaved: (_) async {
-                writes++;
-                return null;
-              },
-            ),
+  testWidgets('insights explain classification completeness at each threshold', (
+    tester,
+  ) async {
+    for (final percentage in [0, 49, 50, 79, 80, 100]) {
+      var writes = 0;
+      final transactions = <Transaction>[];
+      final mappings = <FinancialBaselineMapping>[];
+      if (percentage > 0) {
+        transactions.add(
+          _transaction(
+            DateTime(2025, 1),
+            percentage.toDouble(),
+            'KNOWN MERCHANT',
           ),
         );
-        await tester.pumpAndSettle();
-        await tester.tap(find.byKey(const ValueKey('view-baseline-insights')));
-        await tester.pumpAndSettle();
-        expect(
-          find.byKey(const ValueKey('insights-classification-status')),
-          findsOneWidget,
+        mappings.add(
+          const FinancialBaselineMapping(
+            merchantFingerprint: 'KNOWN MERCHANT',
+            group: BaselineGroup.essential,
+          ),
         );
-        final status = tester
-            .widget<Text>(
-              find.byKey(const ValueKey('insights-classification-status')),
-            )
-            .data!;
-        expect(status, startsWith('$percentage% classified'));
-        if (percentage < 50) {
-          expect(
-            find.byKey(const ValueKey('insights-incomplete-warning')),
-            findsOneWidget,
-          );
-          expect(find.text('Identified Baseline'), findsOneWidget);
-        } else {
-          expect(find.text('Identified Baseline'), findsOneWidget);
-          expect(
-            find.byKey(const ValueKey('insights-incomplete-warning')),
-            percentage < 80 ? findsOneWidget : findsNothing,
-          );
-        }
-        expect(find.text('Top spending contributors'), findsNothing);
-        expect(find.text('Monthly Spending Trend'), findsOneWidget);
-        expect(
-          find.byKey(const ValueKey('six-month-spending-chart')),
-          findsOneWidget,
+      }
+      if (percentage < 100) {
+        transactions.add(
+          _transaction(
+            DateTime(2025, 1),
+            (100 - percentage).toDouble(),
+            'OTHER VENDOR',
+          ),
         );
-        expect(find.textContaining('Baseline = Essential'), findsOneWidget);
+      }
+      await tester.pumpWidget(
+        MaterialApp(
+          home: FinancialBaselineScreen(
+            key: ValueKey('insight-screen-$percentage'),
+            transactions: transactions,
+            initialMappings: mappings,
+            currencySymbol: r'$',
+            onMappingsSaved: (_) async {
+              writes++;
+              return null;
+            },
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('view-baseline-insights')));
+      await tester.pumpAndSettle();
+      if (percentage == 0) {
+        expect(find.text("Savings insights aren't ready yet"), findsOneWidget);
+        expect(find.text('Identified Baseline'), findsNothing);
         await tester.tap(find.byTooltip('Close insights'));
         await tester.pumpAndSettle();
         expect(writes, 0);
+        continue;
       }
-    },
-  );
+      expect(
+        find.byKey(const ValueKey('insights-classification-status')),
+        findsOneWidget,
+      );
+      final status = tester
+          .widget<Text>(
+            find.byKey(const ValueKey('insights-classification-status')),
+          )
+          .data!;
+      expect(
+        status,
+        startsWith(
+          'Based on ${percentage.toStringAsFixed(1)}% of spending classified by Essentiality.',
+        ),
+      );
+      if (percentage < 50) {
+        expect(
+          find.byKey(const ValueKey('insights-incomplete-warning')),
+          findsOneWidget,
+        );
+        expect(find.text('Identified Baseline'), findsOneWidget);
+      } else {
+        expect(find.text('Identified Baseline'), findsOneWidget);
+        expect(
+          find.byKey(const ValueKey('insights-incomplete-warning')),
+          percentage < 80 ? findsOneWidget : findsNothing,
+        );
+      }
+      expect(find.text('Top spending contributors'), findsNothing);
+      expect(find.text('Monthly Spending Trend'), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('six-month-spending-chart')),
+        findsOneWidget,
+      );
+      expect(find.textContaining('Baseline = Essential'), findsOneWidget);
+      await tester.tap(find.byTooltip('Close insights'));
+      await tester.pumpAndSettle();
+      expect(writes, 0);
+    }
+  });
 
   testWidgets('planner shares category and merchant targets without saving', (
     tester,

@@ -297,33 +297,35 @@ void main() {
       await tester.pumpWidget(
         MaterialApp(
           home: Scaffold(
-            body: MonthlyBudgetCard(
-              currentSpent: 14000,
-              regularSpent: 4500,
-              plannedOccasionalSpent: 8000,
-              unexpectedOccasionalSpent: 1500,
-              currencySymbol: r'$',
-              monthlyTarget: 6000,
-              now: DateTime(2025, 3, 15),
-              onCalendarPressed: () {},
-              onSetTargetPressed: () {},
+            body: SingleChildScrollView(
+              child: MonthlyBudgetCard(
+                currentSpent: 14000,
+                regularSpent: 4500,
+                plannedOccasionalSpent: 8000,
+                unexpectedOccasionalSpent: 1500,
+                currencySymbol: r'$',
+                monthlyTarget: 6000,
+                now: DateTime(2025, 3, 15),
+                onCalendarPressed: () {},
+                onSetTargetPressed: () {},
+              ),
             ),
           ),
         ),
       );
 
       expect(find.text(r'$14,000'), findsOneWidget);
-      expect(find.textContaining(r'$12,500 against budget'), findsOneWidget);
-      expect(find.textContaining(r'$1,500 unexpected excluded'), findsOneWidget);
-      expect(find.textContaining('Over budget by'), findsOneWidget);
-      expect(
-        find.textContaining('Daily Allowance Not available while over budget'),
-        findsOneWidget,
-      );
+      expect(find.textContaining('counted toward budget'), findsNothing);
+      expect(find.text('Over budget'), findsOneWidget);
+      expect(find.text(r'$6,500 over'), findsOneWidget);
+      await tester.tap(find.text('Budget details'));
+      await tester.pumpAndSettle();
+      expect(find.text('Unexpected expenses excluded'), findsOneWidget);
+      expect(find.text(r'-$1,500'), findsOneWidget);
       final progress = tester.widget<LinearProgressIndicator>(
         find.byType(LinearProgressIndicator),
       );
-      expect(progress.value, 0);
+      expect(progress.value, 1);
     },
   );
 }

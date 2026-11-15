@@ -19,6 +19,7 @@ Future<void> openExpenses(
   required double width,
   bool dark = false,
   bool empty = false,
+  List<Transaction>? transactions,
 }) async {
   tester.view.physicalSize = Size(width, 1000);
   tester.view.devicePixelRatio = 1;
@@ -26,17 +27,20 @@ Future<void> openExpenses(
   addTearDown(tester.view.resetDevicePixelRatio);
   SharedPreferences.setMockInitialValues({'currency_symbol': r'$'});
   await LocalTransactionStore(accountKey: 'expenses-panel@example.com')
-      .saveCached([
-        if (!empty)
-          for (var i = 0; i < 3; i++)
-            Transaction(
-              id: 'expense-$i',
-              date: DateTime.now().subtract(Duration(days: i)),
-              amount: 10 + i.toDouble(),
-              category: 'Food / Household',
-              description: 'Recorded expense $i',
-            ),
-      ]);
+      .saveCached(
+        transactions ??
+            [
+              if (!empty)
+                for (var i = 0; i < 3; i++)
+                  Transaction(
+                    id: 'expense-$i',
+                    date: DateTime.now().subtract(Duration(days: i)),
+                    amount: 10 + i.toDouble(),
+                    category: 'Food / Household',
+                    description: 'Recorded expense $i',
+                  ),
+            ],
+      );
   await tester.pumpWidget(
     MaterialApp(
       theme: ThemeData(
@@ -60,6 +64,61 @@ Future<void> openExpenses(
 }
 
 void main() {
+  for (final width in [320.0, 390.0, 1200.0]) {
+    testWidgets(
+      'ledger shows clean merchant labels and editing retains the original at $width',
+      (tester) async {
+        const raw = 'ATMOS ENERGY RCR UTIL PYMT 003068 WEB ID: 900';
+        await openExpenses(
+          tester,
+          width: width,
+          transactions: [
+            Transaction(
+              id: 'bank',
+              date: DateTime.now(),
+              amount: 132.26,
+              category: 'Housing / Bills',
+              description: raw,
+            ),
+            Transaction(
+              id: 'manual',
+              date: DateTime.now().subtract(const Duration(days: 1)),
+              amount: 200,
+              category: 'Lifestyle / Misc',
+              description: 'buying iPhone',
+            ),
+          ],
+        );
+        expect(find.text('Atmos Energy'), findsOneWidget);
+        expect(find.text('buying iPhone'), findsOneWidget);
+        expect(find.text(raw), findsNothing);
+        await tester.tap(find.text('Atmos Energy'));
+        await tester.pumpAndSettle();
+        expect(find.text('Edit expense'), findsOneWidget);
+        expect(
+          tester
+              .widgetList<TextField>(find.byType(TextField))
+              .any((field) => field.controller?.text == raw),
+          isTrue,
+        );
+        await tester.tap(find.text('Cancel'));
+        await tester.pumpAndSettle();
+        // The Home recent list uses the same presentation without changing notes.
+        await tester.tap(find.text('Home').last);
+        await tester.pumpAndSettle();
+        final label = find.text('Atmos Energy');
+        await tester.ensureVisible(label);
+        await tester.pumpAndSettle();
+        expect(label, findsOneWidget);
+        final stored = await LocalTransactionStore(
+          accountKey: 'expenses-panel@example.com',
+        ).loadCached();
+        expect(stored.singleWhere((t) => t.id == 'bank').description, raw);
+        await tester.pumpWidget(const SizedBox.shrink());
+        await tester.pumpAndSettle();
+      },
+    );
+  }
   testWidgets(
     'Import Statements directly opens the device picker without source options or a link',
     (tester) async {

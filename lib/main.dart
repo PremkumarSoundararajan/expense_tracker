@@ -34,11 +34,14 @@ import 'services/google_drive_permission_service.dart';
 import 'services/google_sign_in_configuration.dart';
 import 'services/google_sheets_service.dart';
 import 'services/local_transaction_store.dart';
+import 'services/account_deletion_service.dart';
+import 'widgets/account_deletion_screen.dart';
 import 'services/merchant_classification_store.dart';
 import 'widgets/merchant_baseline_panel.dart';
 import 'services/monthly_rollover_service.dart';
 import 'services/budget_comparison.dart';
 import 'services/spending_insights_service.dart';
+import 'services/favourite_spending_spots_service.dart';
 import 'services/statement_file_reader.dart';
 import 'services/statement_document_picker.dart';
 import 'services/suggested_budget_service.dart';
@@ -417,6 +420,21 @@ class _DashboardScreenState extends State<DashboardScreen>
   DateTime _selectedExpenseDate = DateUtils.dateOnly(DateTime.now());
 
   bool _isSaving = false;
+  bool _accountDeletionStarted = false;
+  bool _showDeletionRecovery = false;
+  int _activeLedgerOperations = 0;
+
+  Future<T> _ledgerOperation<T>(Future<T> Function() operation) async {
+    if (_accountDeletionStarted || _showDeletionRecovery) {
+      throw StateError('Account deletion is in progress. Expense sync is disabled.');
+    }
+    _activeLedgerOperations++;
+    try {
+      return await operation();
+    } finally {
+      _activeLedgerOperations--;
+    }
+  }
   bool _isWorkerSyncing = false;
   String? _workerSyncStatus;
   // True until the first Google Sheets sync finishes (or is blocked), so the
@@ -428,6 +446,7 @@ class _DashboardScreenState extends State<DashboardScreen>
   double? _monthlyTarget;
   double? _previousMonthBudget;
   DateTime _heroMonth = monthStart(DateTime.now());
+
   // Budget recorded for _heroMonth when it is a past month.
   double? _heroMonthBudget;
   final SuggestedBudgetService _suggestedBudgetService =
@@ -437,6 +456,20 @@ class _DashboardScreenState extends State<DashboardScreen>
   String? _spreadsheetId;
   String? _workerSpreadsheetId;
   List<Transaction> _transactions = [];
+  List<Transaction>? _merchantLabelSource;
+  ExpenseMerchantLabels? _merchantLabels;
+  String _expenseListLabel(Transaction transaction) {
+    if (!identical(_merchantLabelSource, _transactions)) {
+      _merchantLabelSource = _transactions;
+      _merchantLabels = ExpenseMerchantLabels(
+        _transactions.map((t) => t.description),
+      );
+    }
+    return _merchantLabels!.label(
+      transaction.description,
+      fallback: transaction.category,
+    );
+  }
   late final MerchantClassificationStore _merchantStore =
       MerchantClassificationStore(widget.account.email);
   List<FinancialBaselineMapping> _baselineMappings = [];
@@ -501,6 +534,7 @@ class _DashboardScreenState extends State<DashboardScreen>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (_accountDeletionStarted || _showDeletionRecovery) return;
     if (state == AppLifecycleState.resumed && mounted) {
       setState(() {});
       _refreshPreviousMonthBudget();
@@ -571,6 +605,18 @@ class _DashboardScreenState extends State<DashboardScreen>
 
   Future<void> _loadCurrencyAndInitDrive() async {
     try {
+      if (await AccountDeletionService.isPending(widget.account.email)) {
+        if (mounted) setState(() => _showDeletionRecovery = true);
+        _calendarRefreshTimer?.cancel();
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) {
+            Navigator.of(context).push<void>(MaterialPageRoute(
+              builder: (_) => _accountDeletionScreen(pending: true),
+            ));
+          }
+        });
+        return;
+      }
       final prefs = await SharedPreferences.getInstance();
       final savedCurrency = prefs.getString('currency_symbol');
       final savedMonthlyTarget = prefs.getDouble('monthly_target');
@@ -661,7 +707,64 @@ class _DashboardScreenState extends State<DashboardScreen>
       }
     } finally {
       if (mounted) setState(() => _isInitialSync = false);
+      if (!_showDeletionRecovery && mounted &&
+          Uri.base.queryParameters['deleteAccount'] == '1') {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _openAccountDeletion();
+        });
+      }
     }
+  }
+
+  Widget _accountDeletionScreen({bool pending = false}) => AccountDeletionScreen(
+    email: widget.account.email,
+    pending: pending,
+    signOut: () async { await _googleSignIn.signOut(); },
+    delete: (onProgress) async {
+      if (_activeLedgerOperations > 0 || _isSaving || _isWorkerSyncing) {
+        throw StateError('Wait for the current save or sync to finish, then retry.');
+      }
+      _accountDeletionStarted = true;
+      _calendarRefreshTimer?.cancel();
+      final client = http.Client();
+      try {
+        await AccountDeletionService(
+          accountEmail: widget.account.email,
+          client: client,
+          accessToken: () async {
+            final token = (await widget.account.authentication).accessToken;
+            if (token == null || token.isEmpty) {
+              throw StateError('Sign out and sign in again to finish deletion.');
+            }
+            return token;
+          },
+          cancelReminders: () async {
+            if (!kIsWeb) {
+              await _dailyReminderService.cancelAllForAccountDeletion();
+            }
+          },
+          signOut: () async {
+            _drivePermissionService.clearCachedPermissions();
+            await _googleSignIn.signOut();
+          },
+        ).delete(spreadsheetIds: {
+          ?_spreadsheetId,
+          ?_workerSpreadsheetId,
+        }, onProgress: onProgress);
+      } finally {
+        client.close();
+      }
+    },
+  );
+
+  void _openAccountDeletion() {
+    if (_isInitialSync || _isSaving || _isWorkerSyncing || _activeLedgerOperations > 0) {
+      _showMessage('Wait for the current save or sync to finish, then try again.');
+      return;
+    }
+    Navigator.of(context).push<void>(MaterialPageRoute(
+      builder: (_) => _accountDeletionScreen(),
+    ));
   }
 
   /// Web sign-in can restore the account a moment before an access token is
@@ -700,14 +803,14 @@ class _DashboardScreenState extends State<DashboardScreen>
   }
 
   Map<String, Object?> get _categoryConfiguration => {
-    'categories': withHomeMaintenance(_expenseCategories)
+    'categories': withRequiredExpenseCategories(_expenseCategories)
         .map((c) => c.toJson())
         .toList(),
     'mappings': _categoryMappings.map((m) => m.toJson()).toList(),
   };
 
   String? _categoryIdForName(String name) {
-    final existing = withHomeMaintenance(_expenseCategories)
+    final existing = withRequiredExpenseCategories(_expenseCategories)
         .where((c) => c.name.toLowerCase() == name.toLowerCase())
         .firstOrNull;
     if (existing != null) return existing.id;
@@ -742,10 +845,19 @@ class _DashboardScreenState extends State<DashboardScreen>
         );
       }
     }
-    return withHomeMaintenance(active);
+    return withRequiredExpenseCategories(_expenseCategories)
+        .where(
+          (c) => c.active && !c.archived && !active.any((a) => a.id == c.id),
+        )
+        .followedBy(active)
+        .toList();
   }
 
   Future<void> _saveExpenseCategories(List<ExpenseCategory> categories) async {
+    return _ledgerOperation(() => _saveExpenseCategoriesInternal(categories));
+  }
+
+  Future<void> _saveExpenseCategoriesInternal(List<ExpenseCategory> categories) async {
     final oldById = {
       for (final category in _expenseCategories) category.id: category,
     };
@@ -816,6 +928,10 @@ class _DashboardScreenState extends State<DashboardScreen>
   Future<void> _saveExpenseMappings(
     List<ExpenseCategoryMapping> mappings,
   ) async {
+    return _ledgerOperation(() => _saveExpenseMappingsInternal(mappings));
+  }
+
+  Future<void> _saveExpenseMappingsInternal(List<ExpenseCategoryMapping> mappings) async {
     _categoryMappings = mappings;
     await _expenseCategoryStore.save(
       categories: _expenseCategories,
@@ -863,7 +979,7 @@ class _DashboardScreenState extends State<DashboardScreen>
     await Navigator.of(context).push<void>(
       MaterialPageRoute(
         builder: (_) => ExpenseCategoryManagementScreen(
-          categories: withHomeMaintenance(_expenseCategories),
+          categories: withRequiredExpenseCategories(_expenseCategories),
           onChanged: (categories) =>
               unawaited(_saveExpenseCategories(categories)),
         ),
@@ -930,6 +1046,10 @@ class _DashboardScreenState extends State<DashboardScreen>
   }
 
   Future<void> _initSpreadsheet() async {
+    return _ledgerOperation(_initSpreadsheetInternal);
+  }
+
+  Future<void> _initSpreadsheetInternal() async {
     try {
       var client = await _googleSignIn.authenticatedClient();
       if (client == null && await _waitForGoogleAccess()) {
@@ -984,6 +1104,10 @@ class _DashboardScreenState extends State<DashboardScreen>
   }
 
   Future<void> _fetchData() async {
+    return _ledgerOperation(_fetchDataInternal);
+  }
+
+  Future<void> _fetchDataInternal() async {
     if (_spreadsheetId == null) {
       try {
         await _initSpreadsheet();
@@ -1288,6 +1412,10 @@ class _DashboardScreenState extends State<DashboardScreen>
   Future<String?> _saveBaselineMappings(
     List<FinancialBaselineMapping> mappings,
   ) async {
+    return _ledgerOperation(() => _saveBaselineMappingsInternal(mappings));
+  }
+
+  Future<String?> _saveBaselineMappingsInternal(List<FinancialBaselineMapping> mappings) async {
     final oldByKey = {
       for (final mapping in _baselineMappings)
         mapping.merchantFingerprint.trim().toLowerCase().replaceAll(
@@ -1362,6 +1490,10 @@ class _DashboardScreenState extends State<DashboardScreen>
   }
 
   Future<String> _saveSpendingTargets() async {
+    return _ledgerOperation(_saveSpendingTargetsInternal);
+  }
+
+  Future<String> _saveSpendingTargetsInternal() async {
     try {
       final client = await _googleSignIn.authenticatedClient();
       if (client == null || _spreadsheetId == null) {
@@ -1395,7 +1527,7 @@ class _DashboardScreenState extends State<DashboardScreen>
   bool _showRemainingClassification = false;
   bool _reviewUnknownOnly = false;
   int _classificationEntry = 0;
-  void _reviewRemainingClassification() {
+  void _reviewRemainingClassification({bool unknownOnly = true}) {
     final dashboard = ModalRoute.of(context);
     if (dashboard != null) {
       Navigator.of(context).popUntil((route) => route == dashboard);
@@ -1403,7 +1535,7 @@ class _DashboardScreenState extends State<DashboardScreen>
     setState(() {
       _selectedTab = 2;
       _showRemainingClassification = true;
-      _reviewUnknownOnly = true;
+      _reviewUnknownOnly = unknownOnly;
       _classificationEntry++;
     });
   }
@@ -1424,6 +1556,10 @@ class _DashboardScreenState extends State<DashboardScreen>
   Future<String> _saveMerchantClassifications(
     List<Map<String, dynamic>> changes,
   ) async {
+    return _ledgerOperation(() => _saveMerchantClassificationsInternal(changes));
+  }
+
+  Future<String> _saveMerchantClassificationsInternal(List<Map<String, dynamic>> changes) async {
     await _merchantStore.save(changes);
     final updated = _transactions
         .map(_merchantStore.index.apply)
@@ -1487,6 +1623,8 @@ class _DashboardScreenState extends State<DashboardScreen>
           historyComplete: _targetHistoryComplete,
           initialDraft: draft,
           insightsOnly: true,
+          onClassifyExpenses: () =>
+              _reviewRemainingClassification(unknownOnly: false),
           onDraftChanged: _financialBaselineStore.saveDraft,
           onDraftCleared: _financialBaselineStore.clearDraft,
         ),
@@ -2196,6 +2334,7 @@ class _DashboardScreenState extends State<DashboardScreen>
   }
 
   Future<void> _showMonthlyTargetDialog() async {
+    final budgetMonth = _heroMonth;
     final suggestion = _suggestedBudgetService.suggest(
       transactions: _transactions,
     );
@@ -2203,7 +2342,7 @@ class _DashboardScreenState extends State<DashboardScreen>
       context: context,
       builder: (_) => MonthlyBudgetTargetDialog(
         currencySymbol: _currency,
-        initialTarget: _monthlyTarget,
+        initialTarget: isSameMonth(budgetMonth, DateTime.now()) ? _monthlyTarget : _heroMonthBudget,
         onReviewUnclassified: _reviewRemainingClassification,
         suggestion: suggestion,
         unknownCount: _transactions
@@ -2217,7 +2356,7 @@ class _DashboardScreenState extends State<DashboardScreen>
     );
 
     if (target == null || !mounted) return;
-    await _saveMonthlyTarget(target);
+    await _saveMonthlyTarget(target, month: budgetMonth);
   }
 
   Future<void> _showSuggestedBudget() async {
@@ -2235,10 +2374,20 @@ class _DashboardScreenState extends State<DashboardScreen>
     await _saveMonthlyTarget(applied);
   }
 
-  Future<void> _saveMonthlyTarget(double target) async {
+  Future<void> _saveMonthlyTarget(double target, {DateTime? month}) async {
+    return _ledgerOperation(() => _saveMonthlyTargetInternal(target, month: month));
+  }
+
+  Future<void> _saveMonthlyTargetInternal(double target, {DateTime? month}) async {
     try {
-      await MonthlyBudgetSnapshotStore().saveCurrentMonthBudget(budget: target);
-      if (mounted) setState(() => _monthlyTarget = target);
+      final current = DateTime.now();
+      final targetMonth = month ?? current;
+      await MonthlyBudgetSnapshotStore().saveMonthBudget(month: targetMonth, budget: target);
+      if (mounted) setState(() {
+        if (isSameMonth(targetMonth, current)) _monthlyTarget = target;
+        else if (isSameMonth(targetMonth, _heroMonth)) _heroMonthBudget = target;
+        if (isSameMonth(targetMonth, DateTime(current.year, current.month - 1))) _previousMonthBudget = target;
+      });
     } catch (error) {
       _showMessage('Could not save monthly target: $error');
     }
@@ -2969,6 +3118,9 @@ class _DashboardScreenState extends State<DashboardScreen>
 
   @override
   Widget build(BuildContext context) {
+    if (_showDeletionRecovery) {
+      return const Scaffold(body: Center(child: Text('Finish account deletion to continue.')));
+    }
     final monthlyRolloverRecap = _selectedTab == 0
         ? MonthlyRolloverRecap.calculate(
             transactions: _transactions,
@@ -3007,20 +3159,6 @@ class _DashboardScreenState extends State<DashboardScreen>
             t.date.year == _heroMonth.year && t.date.month == _heroMonth.month,
       ),
     );
-    final monthBudget = isSameMonth(_heroMonth, DateTime.now())
-        ? _monthlyTarget
-        : _heroMonthBudget;
-    final monthOutcome = monthBudget == null
-        ? null
-        : monthSpending.outcome(monthBudget);
-    final monthSubtitle = monthBudget == null
-        ? 'Actual spending'
-        : monthOutcome == BudgetOutcome.over
-        ? 'Over budget'
-        : monthOutcome == BudgetOutcome.exact
-        ? 'Exactly on budget'
-        : 'Within budget';
-
     // Responsive layout: one column on phones / narrow windows, two columns
     // (dashboard + trends | add-expense form) on wide web or desktop windows.
     final screenWidth = MediaQuery.sizeOf(context).width;
@@ -3054,112 +3192,22 @@ class _DashboardScreenState extends State<DashboardScreen>
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  ConstrainedBox(
-                    constraints: const BoxConstraints(minHeight: 116),
-                    child: Card(
-                      margin: EdgeInsets.zero,
-                      clipBehavior: Clip.antiAlias,
-                      child: ExpansionTile(
-                        key: const ValueKey('home-month-summary'),
-                        tilePadding: const EdgeInsets.symmetric(
-                          horizontal: 14,
-                          vertical: 6,
-                        ),
-                        title: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(
-                              formatMonthHeading(
-                                _heroMonth,
-                                now: DateTime.now(),
-                              ),
-                              style: Theme.of(context).textTheme.labelLarge
-                                  ?.copyWith(
-                                    fontWeight: FontWeight.w700,
-                                    color: Theme.of(context)
-                                        .colorScheme
-                                        .onSurfaceVariant,
-                                  ),
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              formatWholeCurrency(
-                                monthSpending.total,
-                                _currency,
-                              ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: Theme.of(context).textTheme.headlineMedium
-                                  ?.copyWith(
-                                    fontWeight: FontWeight.bold,
-                                    color: Theme.of(context)
-                                        .colorScheme
-                                        .primary,
-                                  ),
-                            ),
-                          ],
-                        ),
-                        subtitle: Text(
-                          monthSubtitle,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: Theme.of(context).textTheme.bodySmall,
-                        ),
-                        childrenPadding: const EdgeInsets.fromLTRB(
-                          12,
-                          0,
-                          12,
-                          12,
-                        ),
-                        children: [
-                          MonthlyBudgetCard(
-                            spending: monthSpending,
-
-                            onReviewUnclassified: _reviewMonthUnclassified,
-                            currentSpent: _calculateTotal(
-                              'month',
-                              targetMonth: _heroMonth,
-                            ),
-                            regularSpent: _calculateTotal(
-                              'month',
-                              expenseType: ExpenseType.regular,
-                              targetMonth: _heroMonth,
-                            ),
-                            plannedOccasionalSpent: _calculateTotal(
-                              'month',
-                              expenseType: ExpenseType.plannedOccasional,
-                              targetMonth: _heroMonth,
-                            ),
-                            unexpectedOccasionalSpent: _calculateTotal(
-                              'month',
-                              expenseType: ExpenseType.unexpectedOccasional,
-                              targetMonth: _heroMonth,
-                            ),
-                            currencySymbol: _currency,
-                            monthlyTarget:
-                                isSameMonth(_heroMonth, DateTime.now())
-                                ? _monthlyTarget
-                                : _heroMonthBudget,
-                            rolloverRecap: monthlyRolloverRecap,
-                            selectedMonth: _heroMonth,
-                            availableMonths: availableLedgerMonths(
-                              _transactions,
-                            ),
-                            onMonthSelected: _selectHeroMonth,
-                            onCalendarPressed: () => _showCategoryBreakdown(
-                              // Same call shape the card uses for its own heading.
-                              formatMonthHeading(
-                                _heroMonth,
-                                now: DateTime.now(),
-                              ),
-                              'month',
-                              targetMonth: _heroMonth,
-                            ),
-                            onSetTargetPressed: _showMonthlyTargetDialog,
-                          ),
-                        ],
-                      ),
+                  Card(
+                    key: const ValueKey('home-month-summary'),
+                    margin: EdgeInsets.zero,
+                    child: MonthlyBudgetCard(
+                      spending: monthSpending,
+                      currentSpent: monthSpending.total,
+                      currencySymbol: _currency,
+                      monthlyTarget: isSameMonth(_heroMonth, DateTime.now()) ? _monthlyTarget : _heroMonthBudget,
+                      onReviewUnclassified: _reviewMonthUnclassified,
+                      rolloverRecap: monthlyRolloverRecap,
+                      selectedMonth: _heroMonth,
+                      availableMonths: availableLedgerMonths(_transactions, limit: null),
+                      onMonthSelected: _selectHeroMonth,
+                      onCalendarPressed: () => _showCategoryBreakdown(
+                        formatMonthHeading(_heroMonth, now: DateTime.now()), 'month', targetMonth: _heroMonth),
+                      onSetTargetPressed: _showMonthlyTargetDialog,
                     ),
                   ),
                   SizedBox(height: isWide ? 10 : 8),
@@ -3394,9 +3442,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                 contentPadding: EdgeInsets.zero,
                 leading: const Icon(Icons.receipt_long_outlined),
                 title: Text(
-                  transaction.description.isEmpty
-                      ? transaction.category
-                      : transaction.description,
+                  _expenseListLabel(transaction),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
@@ -3513,9 +3559,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                         contentPadding: EdgeInsets.zero,
                         leading: const Icon(Icons.receipt_long_outlined),
                         title: Text(
-                          transaction.description.isEmpty
-                              ? transaction.category
-                              : transaction.description,
+                          _expenseListLabel(transaction),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                         ),
@@ -3699,6 +3743,14 @@ class _DashboardScreenState extends State<DashboardScreen>
                   leading: const Icon(Icons.logout),
                   title: const Text('Sign out'),
                   onTap: () => _googleSignIn.disconnect(),
+                ),
+                const Divider(height: 1),
+                ListTile(
+                  leading: Icon(Icons.delete_forever_outlined,
+                    color: Theme.of(context).colorScheme.error),
+                  title: Text('Delete account and app data',
+                    style: TextStyle(color: Theme.of(context).colorScheme.error)),
+                  onTap: _openAccountDeletion,
                 ),
               ],
             ),
@@ -4173,17 +4225,18 @@ class _ExpenseEditDialogState extends State<_ExpenseEditDialog> {
             ),
             const SizedBox(height: 12),
             DropdownButtonFormField<String>(
+              isExpanded: true,
               initialValue: _category,
               decoration: const InputDecoration(labelText: 'Category'),
               items: [
                 if (!expenseCategoryOptions.any(
                   (category) => category.name == _category,
                 ))
-                  DropdownMenuItem(value: _category, child: Text(_category)),
+                  DropdownMenuItem(value: _category, child: Text(_category, maxLines: 1, overflow: TextOverflow.ellipsis)),
                 ...expenseCategoryOptions.map(
                   (category) => DropdownMenuItem(
                     value: category.name,
-                    child: Text(category.name),
+                    child: Text(category.name, maxLines: 1, overflow: TextOverflow.ellipsis),
                   ),
                 ),
               ],

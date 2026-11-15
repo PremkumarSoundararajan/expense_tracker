@@ -1,9 +1,6 @@
 import '../models/transaction.dart';
 
-int countTransactionsOnDate(
-  Iterable<Transaction> transactions,
-  DateTime date,
-) {
+int countTransactionsOnDate(Iterable<Transaction> transactions, DateTime date) {
   return transactions.where((transaction) {
     final transactionDate = transaction.date;
     return transactionDate.year == date.year &&
@@ -51,7 +48,7 @@ String formatMonthHeading(DateTime month, {DateTime? now}) {
 List<DateTime> availableLedgerMonths(
   Iterable<Transaction> transactions, {
   DateTime? now,
-  int limit = 12,
+  int? limit = 12,
 }) {
   final current = now ?? DateTime.now();
   final months = <DateTime>{monthStart(current)};
@@ -59,6 +56,6 @@ List<DateTime> availableLedgerMonths(
     months.add(monthStart(transaction.date));
   }
   final sorted = months.toList()..sort((a, b) => b.compareTo(a));
-  if (sorted.length <= limit) return sorted;
+  if (limit == null || sorted.length <= limit) return sorted;
   return sorted.take(limit).toList(growable: false);
 }

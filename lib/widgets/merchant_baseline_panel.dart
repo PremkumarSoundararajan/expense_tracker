@@ -421,7 +421,7 @@ class _MerchantBaselinePanelState extends State<MerchantBaselinePanel> {
       ScaffoldMessenger.maybeOf(context)?.showSnackBar(
         SnackBar(
           content: Text(
-            'Merchants stay excluded while their total expenses are below ${money(threshold)}.',
+            '${preview.groups.length} additional merchants excluded · ${money(preview.amount)} newly excluded. ${_status ?? ''} Merchants stay excluded while their total expenses are below ${money(threshold)}.',
           ),
         ),
       );
@@ -431,11 +431,20 @@ class _MerchantBaselinePanelState extends State<MerchantBaselinePanel> {
   MerchantNaPreview _unclassifiedNaPreview(double threshold) {
     final preview = previewMerchantNa(_groups, threshold);
     return MerchantNaPreview(
-      preview.groups
-          .where(
-            (g) => !_classifiedKeys.contains(g.key) && !_naKeys.contains(g.key),
-          )
-          .toList(),
+      preview.groups.where((g) {
+        if (_classifiedKeys.contains(g.key) || _naKeys.contains(g.key))
+          return false;
+        final rules = <String>{};
+        for (final entry in g.transactions) {
+          final description = entry.transaction.description;
+          if (_index.isAmbiguous(description)) return false;
+          final rule = _index.merchantFor(description);
+          if (rule?['naOptOut'] == true || rule?['naReviewRequired'] == true)
+            return false;
+          if (rule != null) rules.add(rule['id'] as String);
+        }
+        return rules.length <= 1;
+      }).toList(),
       preview.totalSpending,
       preview.totalTransactions,
     );
@@ -542,6 +551,23 @@ class _MerchantBaselinePanelState extends State<MerchantBaselinePanel> {
                 fontSize: 12,
               ),
             ),
+          if (preview != null) ...[
+            const SizedBox(height: 10),
+            Text(
+              '${preview.groups.length} merchants · ${money(preview.amount)} · ${preview.spendingPercent.toStringAsFixed(1)}% of spending',
+              key: const ValueKey('na-live-preview'),
+              style: const TextStyle(fontWeight: FontWeight.w600),
+            ),
+            const Text(
+              'New exclusions only. Existing transaction exceptions stay.',
+              style: TextStyle(fontSize: 12),
+            ),
+            if (_naKeys.isNotEmpty)
+              Text(
+                'Already excluded: ${_naKeys.length} merchants.',
+                style: const TextStyle(fontSize: 12),
+              ),
+          ],
           if (preview != null && preview.transactionPercent > 25)
             Text(
               'Excludes ${preview.transactionPercent.toStringAsFixed(1)}% of transactions (over 25%); this may affect insights.',
@@ -1372,6 +1398,35 @@ class _MerchantBaselinePanelState extends State<MerchantBaselinePanel> {
               _matchesReviewFilters(g),
         )
         .toList();
+    final selectedAmount = filtered.fold<double>(0, (sum, g) => sum + g.total);
+    final scope = _view == 'focus' && _query.trim().isEmpty
+        ? '$_selection${_selection.endsWith('%') ? ' target' : ''}'
+        : _view == 'focus' || _view == 'remaining'
+        ? 'Unclassified'
+        : _view == 'unknown'
+        ? 'Unknown Expense Types'
+        : _view == 'na'
+        ? 'Excluded'
+        : 'Classified';
+    final equivalent = _view == 'focus' && _query.trim().isEmpty
+        ? ['75%', '80%', '90%'].where((option) {
+            if (option == _selection) return false;
+            final other =
+                merchantsForCoverage(
+                      _groups,
+                      double.parse(option.replaceAll('%', '')) / 100,
+                    )
+                    .where(
+                      (g) =>
+                          remainingKeys.contains(g.key) &&
+                          _matchesReviewFilters(g),
+                    )
+                    .map((g) => g.key)
+                    .toSet();
+            return other.length == filtered.length &&
+                filtered.every((g) => other.contains(g.key));
+          }).firstOrNull
+        : null;
     final entries = <Object>[];
     for (final group in filtered) {
       entries.add(group);
@@ -1400,7 +1455,8 @@ class _MerchantBaselinePanelState extends State<MerchantBaselinePanel> {
                                   ? MediaQuery.sizeOf(context).height * 1.15
                                   : MediaQuery.sizeOf(context).height * .78))
                         .clamp(620.0, 1100.0) +
-                    (showNaAction ? 100 : 0)
+                    (showNaAction ? 100 : 0) +
+                    120
               : null,
           child: Card(
             child: Padding(
@@ -1514,6 +1570,33 @@ class _MerchantBaselinePanelState extends State<MerchantBaselinePanel> {
                     ),
                   if (_view == 'overview')
                     const Text('Choose a group to view merchants.'),
+                  if (showReview) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      '$scope · ${filtered.length} merchants · ${money(selectedAmount)} · ${(total <= 0 ? 0.0 : selectedAmount / total * 100).toStringAsFixed(1)}% of spending',
+                      key: const ValueKey('merchant-coverage-scope'),
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w600,
+                        fontSize: 12,
+                      ),
+                    ),
+                    const Text(
+                      'Coverage is spending, not merchant count · all eligible spending.',
+                      style: TextStyle(fontSize: 11),
+                    ),
+                    if (_query.trim().isNotEmpty && _view == 'focus')
+                      const Text(
+                        'Search includes all unclassified merchants, beyond the coverage target.',
+                        style: TextStyle(fontSize: 11),
+                      ),
+                    if (equivalent != null && filtered.isNotEmpty)
+                      Text(
+                        'Same ${filtered.length} merchants as the $equivalent selection.',
+                        key: const ValueKey('merchant-coverage-equivalent'),
+                        style: const TextStyle(fontSize: 11),
+                      ),
+                    const SizedBox(height: 8),
+                  ],
                   if (_view == 'unknown')
                     Text(
                       'Unknown Expense Types (' +
@@ -1527,6 +1610,7 @@ class _MerchantBaselinePanelState extends State<MerchantBaselinePanel> {
                     ),
                   if (_view == 'classified')
                     Offstage(
+                      key: const ValueKey('classified-breakdown-host'),
                       offstage: !showChart,
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,

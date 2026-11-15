@@ -5,8 +5,7 @@ int _cents(double amount) => (amount * 100).round();
 
 enum BudgetOutcome { over, within, exact, uncertain }
 
-/// Counts all recorded spending except explicitly unexpected expenses.
-/// Unknown types stay included, including their signed refunds.
+/// Keeps recorded spending intact while bounding the effect of Unknown types.
 class BudgetSpending {
   BudgetSpending.fromAmounts({
     required double total,
@@ -75,8 +74,10 @@ class BudgetSpending {
   bool get hasUnknown => unknownChargesCents != 0 || unknownRefundsCents != 0;
   double get knownBudget => (regularCents + plannedCents) / 100;
   double get budgetRelevant => (totalCents - unexpectedCents) / 100;
-  double get minimum => budgetRelevant;
-  double get maximum => budgetRelevant;
+  double get minimum =>
+      (regularCents + plannedCents + unknownRefundsCents) / 100;
+  double get maximum =>
+      (regularCents + plannedCents + unknownChargesCents) / 100;
   double get classifiedPercent =>
       totalCents <= 0 ? 0 : ((total - unknown) / total * 100).clamp(0, 100);
   double get unknownPercent =>
@@ -92,11 +93,27 @@ class BudgetSpending {
       : 'High classification coverage';
   BudgetOutcome outcome(double budget) {
     final b = _cents(budget);
-    final spent = totalCents - unexpectedCents;
-    if (spent > b) return BudgetOutcome.over;
-    if (spent == b) return BudgetOutcome.exact;
-    return BudgetOutcome.within;
+    final low = _cents(minimum);
+    final high = _cents(maximum);
+    if (low > b) return BudgetOutcome.over;
+    if (low == b && high == b) return BudgetOutcome.exact;
+    if (high <= b) return BudgetOutcome.within;
+    return BudgetOutcome.uncertain;
   }
 
   double remaining(double budget) => (_cents(budget) - _cents(maximum)) / 100;
+
+  /// Home compares all recorded expenses except explicitly Unexpected ones.
+  /// Unknown stays Unknown; inclusion here does not reclassify the transaction.
+  BudgetOutcome recordedOutcome(double budget) {
+    final difference = _cents(budget) - (totalCents - unexpectedCents);
+    return difference < 0
+        ? BudgetOutcome.over
+        : difference == 0
+        ? BudgetOutcome.exact
+        : BudgetOutcome.within;
+  }
+
+  double recordedRemaining(double budget) =>
+      (_cents(budget) - (totalCents - unexpectedCents)) / 100;
 }

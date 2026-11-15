@@ -1,326 +1,295 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:pocket_ledger/services/monthly_rollover_service.dart';
+import 'package:pocket_ledger/models/transaction.dart';
+import 'package:pocket_ledger/services/budget_comparison.dart';
 import 'package:pocket_ledger/widgets/monthly_budget_card.dart';
+import 'package:pocket_ledger/widgets/month_selector.dart';
+import 'package:pocket_ledger/utils/transaction_period_format.dart';
 
 void main() {
-  testWidgets('shows monthly total and target action when no target is set', (
-    tester,
-  ) async {
-    var targetActionPressed = false;
-    var breakdownPressed = false;
-    await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: MonthlyBudgetCard(
-            currentSpent: 10468,
-            currencySymbol: '\$',
-            monthlyTarget: null,
-            onCalendarPressed: () => breakdownPressed = true,
-            onSetTargetPressed: () => targetActionPressed = true,
-          ),
-        ),
-      ),
-    );
-
-    expect(find.text('THIS MONTH'), findsOneWidget);
-    expect(find.text('\$10,468'), findsOneWidget);
-    expect(find.text('Total actual spending'), findsOneWidget);
-    expect(find.text('Monthly Budget'), findsOneWidget);
-    expect(find.text('Not set'), findsOneWidget);
-    expect(find.text('Daily Allowance Set a monthly budget'), findsOneWidget);
-    expect(find.byType(LinearProgressIndicator), findsNothing);
-
-    await tester.tap(find.byTooltip('Set monthly budget'));
-    await tester.pump();
-    expect(targetActionPressed, isTrue);
-    expect(breakdownPressed, isFalse);
-
-    await tester.tap(find.text('\$10,468'));
-    expect(breakdownPressed, isTrue);
-  });
-
-  testWidgets('shows remaining daily budget and progress under the target', (
-    tester,
-  ) async {
-    var targetActionPressed = false;
-    await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: MonthlyBudgetCard(
-            currentSpent: 50,
-            regularSpent: 50,
-            currencySymbol: '\$',
-            monthlyTarget: 100,
-            now: DateTime(2025, 3, 15),
-            onCalendarPressed: () {},
-            onSetTargetPressed: () => targetActionPressed = true,
-          ),
-        ),
-      ),
-    );
-
-    expect(find.text('\$100'), findsOneWidget);
-    expect(find.text('Daily Allowance \$3 · 17 days left'), findsOneWidget);
-    expect(find.textContaining('<'), findsNothing);
-    await tester.tap(find.byTooltip('Edit monthly budget'));
-    await tester.pump();
-    expect(targetActionPressed, isTrue);
-    expect(
-      tester
-          .widget<LinearProgressIndicator>(find.byType(LinearProgressIndicator))
-          .value,
-      0.5,
-    );
-  });
-
-  testWidgets('shows over-budget status and caps progress at the limit', (
-    tester,
-  ) async {
-    await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: MonthlyBudgetCard(
-            currentSpent: 125,
-            regularSpent: 125,
-            currencySymbol: '\$',
-            monthlyTarget: 100,
-            now: DateTime(2025, 3, 15),
-            onCalendarPressed: () {},
-            onSetTargetPressed: () {},
-          ),
-        ),
-      ),
-    );
-
-    expect(find.text('Over budget by \$25'), findsOneWidget);
-    expect(
-      find.text('Daily Allowance Not available while over budget'),
-      findsOneWidget,
-    );
-    expect(
-      tester
-          .widget<LinearProgressIndicator>(find.byType(LinearProgressIndicator))
-          .value,
-      0.0,
-    );
-  });
-
-  testWidgets('shows actual current spend and rollover recap together', (
-    tester,
-  ) async {
-    await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: MonthlyBudgetCard(
-            currentSpent: 0,
-            currencySymbol: '\$',
-            monthlyTarget: 100,
-            now: DateTime(2025, 3, 1),
-            rolloverRecap: const MonthlyRolloverRecap(
-              previousMonthSpend: 75,
-              monthlyBudget: 100,
-            ),
-            onCalendarPressed: () {},
-            onSetTargetPressed: () {},
-          ),
-        ),
-      ),
-    );
-
-    expect(
-      find.text('🎉 Great job last month! You stayed under budget by \$25.'),
-      findsOneWidget,
-    );
-    expect(find.text('\$0'), findsAtLeastNWidgets(1));
-    expect(find.byType(LinearProgressIndicator), findsOneWidget);
-    expect(find.text('\$100'), findsOneWidget);
-    expect(find.text('Within budget · \$100 remaining'), findsOneWidget);
-  });
-
-  testWidgets('shows over-budget rollover message', (tester) async {
-    await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: MonthlyBudgetCard(
-            currentSpent: 0,
-            currencySymbol: '\$',
-            monthlyTarget: 100,
-            now: DateTime(2025, 3, 1),
-            rolloverRecap: const MonthlyRolloverRecap(
-              previousMonthSpend: 125,
-              monthlyBudget: 100,
-            ),
-            onCalendarPressed: () {},
-            onSetTargetPressed: () {},
-          ),
-        ),
-      ),
-    );
-
-    expect(
-      find.text(
-        "⚠️ Last month finished over budget by \$25. Here's to a fresh start!",
-      ),
-      findsOneWidget,
-    );
-  });
-
-  testWidgets('includes today in days left at month start and end', (
-    tester,
-  ) async {
-    for (final dateAndSummary in [
-      (DateTime(2025, 3, 1), 'Daily Allowance \$10 · 31 days left'),
-      (DateTime(2025, 3, 31), 'Daily Allowance \$310 · 1 day left'),
-    ]) {
-      await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(
-            body: MonthlyBudgetCard(
-              currentSpent: 0,
-              regularSpent: 0,
-              currencySymbol: '\$',
-              monthlyTarget: 310,
-              now: dateAndSummary.$1,
-              onCalendarPressed: () {},
-              onSetTargetPressed: () {},
-            ),
-          ),
-        ),
-      );
-      expect(find.text(dateAndSummary.$2), findsOneWidget);
-      expect(find.textContaining('including today'), findsNothing);
-    }
-  });
-
-  testWidgets('shows zero allowance at exact and zero budgets', (tester) async {
-    await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: MonthlyBudgetCard(
-            currentSpent: 100,
-            regularSpent: 100,
-            currencySymbol: '\$',
-            monthlyTarget: 100,
-            now: DateTime(2025, 3, 31),
-            onCalendarPressed: () {},
-            onSetTargetPressed: () {},
-          ),
-        ),
-      ),
-    );
-    expect(find.text('Exactly on budget'), findsOneWidget);
-    expect(find.text('Daily Allowance \$0 · 1 day left'), findsOneWidget);
-    expect(find.text('Over budget by'), findsNothing);
-
-    await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: MonthlyBudgetCard(
-            currentSpent: 0,
-            regularSpent: 0,
-            currencySymbol: '\$',
-            monthlyTarget: 0,
-            now: DateTime(2025, 3, 31),
-            onCalendarPressed: () {},
-            onSetTargetPressed: () {},
-          ),
-        ),
-      ),
-    );
-    expect(find.text('\$0'), findsAtLeastNWidgets(1));
-    expect(find.text('Not set'), findsNothing);
-    expect(find.byType(LinearProgressIndicator), findsNothing);
-  });
-
-  testWidgets('keeps the month card within a narrow phone layout', (
-    tester,
-  ) async {
-    tester.view.physicalSize = const Size(320, 800);
+  Future<void> show(
+    WidgetTester tester, {
+    double width = 390,
+    bool dark = false,
+    double total = 3357.29,
+    double regular = 3000,
+    double unexpected = 10.47,
+    double? budget = 4349.35,
+    DateTime? month,
+    VoidCallback? edit,
+    VoidCallback? category,
+    VoidCallback? review,
+  }) async {
+    tester.view.physicalSize = Size(width, 900);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
-
     await tester.pumpWidget(
       MaterialApp(
+        theme: ThemeData(brightness: dark ? Brightness.dark : Brightness.light),
         home: Scaffold(
-          body: Padding(
-            padding: const EdgeInsets.all(12),
+          body: SingleChildScrollView(
             child: MonthlyBudgetCard(
-              currentSpent: 14000,
-              regularSpent: 4500,
-              plannedOccasionalSpent: 8000,
-              unexpectedOccasionalSpent: 1500,
-              currencySymbol: '\$',
-              monthlyTarget: 6000,
-              now: DateTime(2025, 3, 15),
-              onCalendarPressed: () {},
-              onSetTargetPressed: () {},
+              currentSpent: total,
+              regularSpent: regular,
+              unexpectedOccasionalSpent: unexpected,
+              currencySymbol: r'$',
+              monthlyTarget: budget,
+              now: DateTime(2026, 11, 15),
+              selectedMonth: month,
+              onCalendarPressed: category ?? () {},
+              onSetTargetPressed: edit ?? () {},
+              onReviewUnclassified: review,
+              onMonthSelected: (_) {},
+              availableMonths: [DateTime(2024, 1), DateTime(2026, 11)],
             ),
           ),
         ),
       ),
     );
+  }
 
-    expect(tester.takeException(), isNull);
-    expect(find.textContaining('Daily Allowance'), findsOneWidget);
-    expect(find.text('Days left in month'), findsNothing);
-    final allowance = find.text(
-      'Daily Allowance Not available while over budget',
-    );
-    expect(allowance, findsOneWidget);
-    final allowanceText = tester.widget<Text>(allowance);
-    expect(allowanceText.maxLines, 1);
-    expect(allowanceText.softWrap, isFalse);
-  });
+  for (final width in [320.0, 390.0]) {
+    testWidgets('large daily allowance stays separate from details at $width', (
+      tester,
+    ) async {
+      await show(
+        tester,
+        width: width,
+        total: 857,
+        regular: 657,
+        unexpected: 200,
+        budget: 20000,
+      );
+      final pill = tester.getRect(
+        find.byKey(const ValueKey('daily-allowance-pill')),
+      );
+      final details = tester.getRect(
+        find.byKey(const ValueKey('monthly-budget-details')),
+      );
+      expect(pill.right, lessThanOrEqualTo(details.left));
+      expect(find.text('Can spend: \$1,208.93 / day'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+  }
 
+  for (final width in [320.0, 390.0, 1280.0]) {
+    for (final dark in [false, true]) {
+      testWidgets('compact Home and details popup at $width dark=$dark', (
+        tester,
+      ) async {
+        var edited = false;
+        var drilled = false;
+        await show(
+          tester,
+          width: width,
+          dark: dark,
+          edit: () => edited = true,
+          category: () => drilled = true,
+        );
+        expect(find.text(r'$3,357'), findsOneWidget);
+        expect(find.text('Within budget'), findsOneWidget);
+        expect(find.text(r'$1,003 left'), findsOneWidget);
+        expect(find.text(r'Can spend: $62.65 / day'), findsOneWidget);
+        expect(find.text('Actual expense'), findsOneWidget);
+        expect(find.text(r'Budget: $4,349'), findsOneWidget);
+        expect(find.textContaining('counted toward budget'), findsNothing);
+        final kpis = tester.widget<Row>(
+          find.byKey(const ValueKey('budget-kpi-row')),
+        );
+        expect(kpis.crossAxisAlignment, CrossAxisAlignment.end);
+        expect(
+          tester
+              .getRect(find.byKey(const ValueKey('hero-month-selector')))
+              .bottom,
+          lessThan(
+            tester.getRect(find.byKey(const ValueKey('budget-kpi-row'))).top,
+          ),
+        );
+        final progress = tester.widget<LinearProgressIndicator>(
+          find.byType(LinearProgressIndicator),
+        );
+        expect(progress.value, closeTo(3346.82 / 4349.35, .000001));
+        expect(find.text('By Category'), findsNothing);
+        expect(find.text('Total actual spending'), findsNothing);
+        expect(
+          tester.getSize(find.byType(MonthlyBudgetCard)).height,
+          lessThan(360),
+        );
+        await tester.tap(
+          find.byKey(const ValueKey('monthly-breakdown-tap-target')),
+        );
+        expect(drilled, isTrue);
+        await tester.tap(find.text('Budget details'));
+        await tester.pumpAndSettle();
+        final sheet = find.byType(BottomSheet);
+        expect(
+          find.descendant(
+            of: sheet,
+            matching: find.text('Budget details — November 2026'),
+          ),
+          findsOneWidget,
+        );
+        for (final amount in [
+          r'$3,357.29',
+          r'-$10.47',
+          r'$3,346.82',
+          r'$4,349.35',
+          r'$1,002.53',
+        ]) {
+          expect(
+            find.descendant(of: sheet, matching: find.text(amount)),
+            findsOneWidget,
+          );
+        }
+        await tester.ensureVisible(find.text('Edit budget'));
+        await tester.tap(find.text('Edit budget'));
+        await tester.pumpAndSettle();
+        expect(edited, isTrue);
+        expect(sheet, findsNothing);
+        expect(tester.takeException(), isNull);
+      });
+    }
+  }
   testWidgets(
-    'places budget metrics, remaining progress and allowance neatly',
+    'unknown stays included without a range and review closes details',
     (tester) async {
+      var reviewed = false;
+      await show(
+        tester,
+        total: 120,
+        regular: 90,
+        unexpected: 0,
+        budget: 100,
+        review: () => reviewed = true,
+      );
+      expect(find.text('Over budget'), findsOneWidget);
+      expect(find.text(r'$20 over'), findsOneWidget);
+      expect(find.textContaining('uncertain'), findsNothing);
+      expect(find.text(r'Can spend: $0 / day'), findsOneWidget);
+      await tester.tap(find.text('Budget details'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('monthly-budget-coverage')));
+      await tester.pumpAndSettle();
+      expect(reviewed, isTrue);
+      expect(find.byType(BottomSheet), findsNothing);
+    },
+  );
+  testWidgets(
+    'past months show their budget and congratulations without daily allowance',
+    (tester) async {
+      await show(tester, month: DateTime(2026, 10));
+      expect(find.text('Within budget'), findsOneWidget);
+      expect(find.text(r'Budget: $4,349'), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('past-budget-congratulations')),
+        findsOneWidget,
+      );
+      expect(find.byKey(const ValueKey('daily-allowance-pill')), findsNothing);
+      await tester.tap(find.text('Budget details'));
+      await tester.pumpAndSettle();
+      expect(find.text('Budget details — October 2026'), findsOneWidget);
+      expect(find.text(r'$4,349.35'), findsOneWidget);
+    },
+  );
+  testWidgets('no budget can be set in details and zero budget is valid', (
+    tester,
+  ) async {
+    var edited = false;
+    await show(tester, budget: null, edit: () => edited = true);
+    expect(find.text('No budget set'), findsOneWidget);
+    expect(find.byType(LinearProgressIndicator), findsNothing);
+    await tester.tap(find.text('Budget details'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Set budget'));
+    await tester.pumpAndSettle();
+    expect(edited, isTrue);
+    await show(tester, total: 0, regular: 0, unexpected: 0, budget: 0);
+    expect(find.text('Exactly on budget'), findsOneWidget);
+    expect(find.text(r'Can spend: $0 / day'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+  testWidgets(
+    'month arrows include gaps, calendar reaches old history and blocks future',
+    (tester) async {
+      DateTime? chosen;
       await tester.pumpWidget(
         MaterialApp(
           home: Scaffold(
-            body: MonthlyBudgetCard(
-              currentSpent: 240,
-              regularSpent: 150,
-              plannedOccasionalSpent: 90,
-              currencySymbol: '\$',
-              monthlyTarget: 300,
-              now: DateTime(2025, 3, 15),
-              onCalendarPressed: () {},
-              onSetTargetPressed: () {},
+            body: MonthSelector(
+              now: DateTime(2026, 11),
+              selectedMonth: DateTime(2026, 11),
+              months: [DateTime(2024, 1), DateTime(2026, 11)],
+              onSelected: (v) => chosen = v,
             ),
           ),
         ),
       );
-
-      final budgetLabel = tester.getRect(find.text('Monthly Budget'));
-      final budgetAmount = tester.getRect(find.text('\$300'));
-      final progressBar = tester.getRect(find.byType(LinearProgressIndicator));
-      final remainingLabel = tester.getRect(find.text('Budget outcome'));
-      final card = tester.getRect(find.byType(Card));
-      final allowancePill = tester.getRect(
-        find.byKey(const ValueKey('daily-allowance-pill')),
+      expect(
+        tester
+            .widget<IconButton>(
+              find.widgetWithIcon(IconButton, Icons.chevron_right),
+            )
+            .onPressed,
+        isNull,
       );
-      final allowanceText = tester.getRect(
-        find.text('Daily Allowance \$4 · 17 days left'),
+      await tester.tap(find.byTooltip('Previous month'));
+      expect(chosen, DateTime(2026, 10));
+      await tester.tap(find.byTooltip('Choose month'));
+      await tester.pumpAndSettle();
+      final picker = tester.widget<DatePickerDialog>(
+        find.byType(DatePickerDialog),
       );
-      expect(remainingLabel.center.dx, greaterThan(budgetLabel.center.dx));
-      expect(remainingLabel.center.dy, closeTo(budgetLabel.center.dy, 24));
-      expect(allowancePill.center.dx, closeTo(card.center.dx, 2));
-      expect(allowanceText.center.dx, closeTo(allowancePill.center.dx, 2));
-      expect(allowancePill.top, greaterThan(budgetLabel.top));
-      expect(find.text('Days left in month'), findsNothing);
-      expect(find.text('Daily Allowance \$4 · 17 days left'), findsOneWidget);
-      expect(find.text('20% of budget left'), findsOneWidget);
-      expect(find.byType(Divider), findsNothing);
-      expect(budgetAmount.top - budgetLabel.bottom, lessThanOrEqualTo(24));
-      expect(progressBar.top, greaterThan(budgetAmount.bottom));
-      expect(progressBar.bottom, lessThan(allowancePill.top));
-      final editButton = tester.getRect(find.byTooltip('Edit monthly budget'));
-      expect(editButton.width, greaterThanOrEqualTo(44));
-      expect(editButton.height, greaterThanOrEqualTo(44));
-      expect(tester.takeException(), isNull);
+      expect(picker.firstDate, DateTime(2024, 1));
+      expect(picker.lastDate, DateTime(2026, 11, 30));
     },
   );
+  test('recorded comparison uses actual minus unexpected with signed Unknown refunds', () {
+    final data = BudgetSpending.fromTransactions([
+      Transaction(
+        id: 'a',
+        date: DateTime(2026, 11),
+        amount: 80,
+        category: 'Food',
+        expenseType: ExpenseType.regular,
+      ),
+      Transaction(
+        id: 'b',
+        date: DateTime(2026, 11),
+        amount: 30,
+        category: 'Food',
+      ),
+      Transaction(
+        id: 'c',
+        date: DateTime(2026, 11),
+        amount: -10,
+        category: 'Food',
+      ),
+      Transaction(
+        id: 'd',
+        date: DateTime(2026, 11),
+        amount: 50,
+        category: 'Food',
+        expenseType: ExpenseType.unexpectedOccasional,
+      ),
+    ]);
+    expect(data.total, 150);
+    expect(data.budgetRelevant, 100);
+    expect(data.recordedOutcome(100), BudgetOutcome.exact);
+    expect(data.recordedRemaining(120), 20);
+    expect(data.unknown, 20);
+    expect(data.regular, 80);
+    final history = [
+      for (var m = 1; m <= 18; m++)
+        Transaction(date: DateTime(2024, m), amount: 10, category: 'Food'),
+    ];
+    expect(
+      availableLedgerMonths(
+        history,
+        now: DateTime(2026, 11),
+        limit: null,
+      ).length,
+      19,
+    );
+  });
 }

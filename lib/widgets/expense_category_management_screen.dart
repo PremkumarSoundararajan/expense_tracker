@@ -30,21 +30,55 @@ class _ExpenseCategoryManagementScreenState
 
   List<ExpenseCategory> _allUnder(String parentId) {
     final saved = {for (final item in _under(parentId)) item.id: item};
-    final suggestions = suggestedExpenseSubcategories[parentId] ?? const <String>[];
+    final suggestions =
+        suggestedExpenseSubcategories[parentId] ?? const <String>[];
     final all = <ExpenseCategory>[
       for (var index = 0; index < suggestions.length; index++)
-        saved[stableCategoryId(parentId, suggestions[index])] ?? ExpenseCategory(
-          id: stableCategoryId(parentId, suggestions[index]),
-          parentId: parentId,
-          name: suggestions[index],
-          active: false,
-          isSuggested: true,
-          sortOrder: index,
-        ),
+        saved[stableCategoryId(parentId, suggestions[index])] ??
+            ExpenseCategory(
+              id: stableCategoryId(parentId, suggestions[index]),
+              parentId: parentId,
+              name: suggestions[index],
+              active: false,
+              isSuggested: true,
+              sortOrder: index,
+            ),
       ..._under(parentId).where((item) => !item.isSuggested),
     ];
-    return all..sort((a, b) => a.sortOrder.compareTo(b.sortOrder));
+    return {for (final category in all) category.id: category}.values.toList()
+      ..sort((a, b) => a.sortOrder.compareTo(b.sortOrder));
   }
+
+  List<ExpenseCategory> get _available => [
+    for (final parent in defaultExpenseParents.keys) ..._allUnder(parent),
+    ..._items.where((c) => !defaultExpenseParents.containsKey(c.parentId)),
+  ];
+
+  bool? _selection(List<ExpenseCategory> categories) {
+    final count = categories.where((c) => c.active && !c.archived).length;
+    return count == 0
+        ? false
+        : count == categories.length
+        ? true
+        : null;
+  }
+
+  void _select(List<ExpenseCategory> categories, bool enabled) {
+    final byId = {for (final item in _items) item.id: item};
+    var changed = false;
+    for (final category in categories) {
+      if ((category.active && !category.archived) == enabled) continue;
+      byId[category.id] = category.copyWith(
+        active: enabled,
+        archived: !enabled,
+      );
+      changed = true;
+    }
+    if (!changed) return;
+    setState(() => _items = byId.values.toList());
+    _commit(); // One existing persistence/sync operation for the whole selection.
+  }
+
   Future<String?> _askName({String? initial}) async {
     final controller = TextEditingController(text: initial);
     return showDialog<String>(
@@ -85,7 +119,9 @@ class _ExpenseCategoryManagementScreenState
           id: createCustomCategoryId(parentId),
           parentId: parentId,
           name: name,
-          sortOrder: suggestedExpenseSubcategories[parentId]!.length + _under(parentId).where((item) => !item.isSuggested).length,
+          sortOrder:
+              suggestedExpenseSubcategories[parentId]!.length +
+              _under(parentId).where((item) => !item.isSuggested).length,
         ),
       ),
     );
@@ -113,10 +149,14 @@ class _ExpenseCategoryManagementScreenState
     siblings.insert(target, moving);
     setState(() {
       _items.removeWhere((c) => c.parentId == category.parentId);
-      _items.addAll([for (var i = 0; i < siblings.length; i++) siblings[i].copyWith(sortOrder: i)]);
+      _items.addAll([
+        for (var i = 0; i < siblings.length; i++)
+          siblings[i].copyWith(sortOrder: i),
+      ]);
     });
     _commit();
   }
+
   void _toggle(ExpenseCategory category, bool enabled) {
     setState(
       () => _items = _items
@@ -215,17 +255,43 @@ class _ExpenseCategoryManagementScreenState
           'Choose the subcategories you use. Archived categories remain attached to existing transactions and can be restored.',
         ),
         const SizedBox(height: 12),
+        CheckboxListTile(
+          key: const ValueKey('category-select-all'),
+          contentPadding: EdgeInsets.zero,
+          controlAffinity: ListTileControlAffinity.leading,
+          tristate: true,
+          value: _selection(_available),
+          title: const Text('Select All Categories'),
+          onChanged: (_) => _select(_available, _selection(_available) != true),
+          secondary: TextButton(
+            onPressed: () => _select(_available, false),
+            child: const Text('Deselect All'),
+          ),
+        ),
         for (final parent in defaultExpenseParents.entries)
           Card(
             child: ExpansionTile(
               key: PageStorageKey(parent.key),
+              leading: Checkbox(
+                key: ValueKey('category-section-${parent.key}'),
+                tristate: true,
+                semanticLabel: 'Select all ${parent.value}',
+                value: _selection(_allUnder(parent.key)),
+                onChanged: (_) => _select(
+                  _allUnder(parent.key),
+                  _selection(_allUnder(parent.key)) != true,
+                ),
+              ),
               title: Text(parent.value),
               subtitle: Text(
                 '${_under(parent.key).where((c) => c.active && !c.archived).length} active',
               ),
               children: [
                 for (final category in _allUnder(parent.key))
-                  category.isSuggested ? _suggestion(category) : _categoryTile(category),                Align(
+                  category.isSuggested
+                      ? _suggestion(category)
+                      : _categoryTile(category),
+                Align(
                   alignment: Alignment.centerRight,
                   child: TextButton.icon(
                     onPressed: () => _add(parent.key),
@@ -287,20 +353,41 @@ class _ExpenseCategoryManagementScreenState
     leading: Checkbox(
       value: category.active && !category.archived,
       onChanged: (value) {
-        final updated = category.copyWith(active: value ?? false, archived: false);
+        final updated = category.copyWith(
+          active: value ?? false,
+          archived: false,
+        );
         setState(() {
           final index = _items.indexWhere((item) => item.id == category.id);
-          if (index < 0) _items.add(updated); else _items[index] = updated;
+          if (index < 0)
+            _items.add(updated);
+          else
+            _items[index] = updated;
         });
         _commit();
       },
     ),
     title: Text(category.name),
-    trailing: Wrap(spacing: 0, children: [
-      IconButton(tooltip: 'Move up', icon: const Icon(Icons.arrow_upward), onPressed: () => _move(category, -1)),
-      IconButton(tooltip: 'Move down', icon: const Icon(Icons.arrow_downward), onPressed: () => _move(category, 1)),
-      IconButton(tooltip: 'Rename subcategory', icon: const Icon(Icons.edit_outlined), onPressed: () => _rename(category)),
-    ]),
+    trailing: Wrap(
+      spacing: 0,
+      children: [
+        IconButton(
+          tooltip: 'Move up',
+          icon: const Icon(Icons.arrow_upward),
+          onPressed: () => _move(category, -1),
+        ),
+        IconButton(
+          tooltip: 'Move down',
+          icon: const Icon(Icons.arrow_downward),
+          onPressed: () => _move(category, 1),
+        ),
+        IconButton(
+          tooltip: 'Rename subcategory',
+          icon: const Icon(Icons.edit_outlined),
+          onPressed: () => _rename(category),
+        ),
+      ],
+    ),
   );
   Widget _categoryTile(ExpenseCategory category) => ListTile(
     dense: true,
@@ -331,4 +418,3 @@ class _ExpenseCategoryManagementScreenState
     ),
   );
 }
-

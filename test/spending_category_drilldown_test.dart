@@ -152,7 +152,7 @@ Future<void> boot(
     await tester.tap(
       find.descendant(
         of: find.byType(MonthlyBudgetCard),
-        matching: find.text('Total actual spending'),
+        matching: find.byKey(const ValueKey('monthly-breakdown-tap-target')),
       ),
     );
     await tester.pumpAndSettle();

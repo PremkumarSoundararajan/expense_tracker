@@ -5,8 +5,9 @@ import 'package:pocket_ledger/main.dart';
 import 'package:pocket_ledger/models/transaction.dart';
 import 'package:pocket_ledger/services/local_transaction_store.dart';
 import 'package:pocket_ledger/utils/currency_format.dart';
-import 'package:pocket_ledger/utils/transaction_period_format.dart';
 import 'package:pocket_ledger/widgets/month_selector.dart';
+import 'package:pocket_ledger/widgets/monthly_budget_target_dialog.dart';
+import 'package:pocket_ledger/services/monthly_rollover_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class _Account implements GoogleSignInAccount {
@@ -19,7 +20,7 @@ class _Account implements GoogleSignInAccount {
 void main() {
   for (final previousYear in [false, true]) {
     testWidgets(
-      'Today and This Year survive collapsing a ${previousYear ? 'previous-year' : 'past-month'} selection',
+      'Today and This Year remain visible while viewing a ${previousYear ? 'previous-year' : 'past-month'} selection',
       (tester) async {
         tester.view.physicalSize = const Size(1200, 2000);
         tester.view.devicePixelRatio = 1;
@@ -33,6 +34,11 @@ void main() {
         final past = previousYear
             ? DateTime(now.year - 1, 10, 5)
             : DateTime(now.year, now.month - 1, 5);
+        final preferences = await SharedPreferences.getInstance();
+        await preferences.setDouble(
+          MonthlyBudgetSnapshotStore.keyForMonth(past),
+          300,
+        );
         final ledger = [
           Transaction(
             id: 'today',
@@ -73,27 +79,36 @@ void main() {
         );
         selector.onSelected(DateTime(past.year, past.month));
         await tester.pumpAndSettle();
-        await tester.tap(
-          find
-              .descendant(
-                of: summary,
-                matching: find.text(formatMonthHeading(past, now: now)),
-              )
-              .first,
+        expect(
+          find.descendant(of: summary, matching: find.text(r'$44')),
+          findsOneWidget,
         );
-        await tester.pumpAndSettle();
-        expect(find.textContaining('Within budget'), findsOneWidget);
-        expect(find.textContaining('budget remaining'), findsNothing);
-        expect(find.textContaining('0% used'), findsNothing);
-        expect(find.text('TODAY'), findsOneWidget);
-        expect(find.text('THIS YEAR'), findsOneWidget);
         expect(
           find.descendant(
             of: summary,
-            matching: find.text(formatMonthHeading(past, now: now)),
+            matching: find.text('Total actual spending'),
           ),
-          findsOneWidget,
+          findsNothing,
         );
+        expect(find.text('By Category'), findsNothing);
+        expect(find.text('Budget: \$300'), findsOneWidget);
+        await tester.tap(find.byKey(const ValueKey('monthly-budget-details')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Edit budget'));
+        await tester.pumpAndSettle();
+        expect(
+          tester
+              .widget<MonthlyBudgetTargetDialog>(
+                find.byType(MonthlyBudgetTargetDialog),
+              )
+              .initialTarget,
+          300,
+        );
+        await tester.tap(find.text('Cancel'));
+        await tester.pumpAndSettle();
+        expect(preferences.getDouble('monthly_target'), 500);
+        expect(find.text('TODAY'), findsOneWidget);
+        expect(find.text('THIS YEAR'), findsOneWidget);
         final expectedYear = ledger
             .where((t) => t.date.year == now.year)
             .fold<double>(0, (sum, t) => sum + t.amount);

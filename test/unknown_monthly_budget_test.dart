@@ -14,9 +14,15 @@ void main() {
         expenseType: ExpenseType.unknown,
       ),
     ];
-    final unknownRecap = MonthlyRolloverRecap.calculate(transactions: rows, monthlyBudget: 5000, now: DateTime(2026, 11, 9))!;
-    expect(unknownRecap.stayedUnderBudget, false);
+    final unknownRecap = MonthlyRolloverRecap.calculate(
+      transactions: rows,
+      monthlyBudget: 5000,
+      now: DateTime(2026, 11, 9),
+    );
+    expect(unknownRecap, isNotNull);
+    expect(unknownRecap!.stayedUnderBudget, isFalse);
     expect(unknownRecap.difference, 2508);
+
     final classified = rows
         .map((t) => t.copyWith(expenseType: ExpenseType.regular))
         .toList();
@@ -60,8 +66,13 @@ void main() {
             ),
           ),
         );
-        expect(find.textContaining(r'Over budget by $2,508'), findsOneWidget);
-        expect(find.textContaining(r'$7,508 unclassified'), findsOneWidget);
+        expect(find.textContaining('Over budget'), findsOneWidget);
+        await tester.tap(find.text('Budget details'));
+        await tester.pumpAndSettle();
+        expect(
+          find.textContaining(r'Includes $7,508 unclassified'),
+          findsOneWidget,
+        );
         expect(find.textContaining('Under budget by'), findsNothing);
         expect(
           find.byKey(const ValueKey('daily-allowance-pill')),
@@ -92,7 +103,8 @@ void main() {
         ),
       ),
     );
-    expect(find.textContaining(r'Over budget by $2,508'), findsOneWidget);
+    expect(find.text('Over budget'), findsOneWidget);
+    expect(find.text(r'$2,508 over'), findsOneWidget);
     expect(find.text('Classification incomplete'), findsNothing);
   });
 }

@@ -303,14 +303,72 @@ class _SpendingSpotAccumulator {
   }
 }
 
-/// Turns raw bank, card, or hand-typed descriptions into short merchant names.
-///
-/// Steps: pull the merchant out of bank-specific layouts (ACH metadata,
-/// PayPal, Zelle/Venmo), clean it, drop tokens containing digits and bank
-/// boilerplate, remove a "city + state" suffix that repeats across several
-/// merchants, then merge names that are whole-word prefixes of each other
-/// into the shortest one. Cleaning is Unicode-aware so non-Latin merchant
-/// names are kept.
+/// Display-only labels for the ledger. Reuses the insight's corpus-aware
+/// cleanup without changing descriptions, grouping keys or saved merchant rules.
+class ExpenseMerchantLabels {
+  ExpenseMerchantLabels(Iterable<String> descriptions) {
+    final originals = descriptions.toSet();
+    final names = SpendingMerchantNameIndex(originals);
+    for (final raw in originals) {
+      final compact = raw.replaceAll(RegExp(r'\s+'), ' ').trim();
+      // There is no reliable source flag on older rows. Preserve ordinary
+      // hand-written notes rather than treating every number as a bank ID.
+      if (!_statement.hasMatch(compact) &&
+          !(compact == compact.toUpperCase() && _reference.hasMatch(compact))) {
+        _labels[raw] = compact;
+        continue;
+      }
+      if (_atm.hasMatch(compact)) {
+        _labels[raw] = 'ATM withdrawal';
+        continue;
+      }
+      final key = names
+          .keyFor(raw)
+          .split(' ')
+          .where((token) => !_displayNoise.contains(token))
+          .join(' ');
+      _labels[raw] = key.isEmpty
+          ? compact
+          : key
+                .split(' ')
+                .map(
+                  (word) =>
+                      word.length <= 3 ? word : _MerchantNames.titleCase(word),
+                )
+                .join(' ');
+    }
+  }
+
+  static final _statement = RegExp(
+    r'\b(?:POS|DEBIT|CHECKCARD|ACH|RCR|PYMT|PMT|BILLPAY|PURCHASE|PAYMENT|PPD|CCD|INDN|WITHDRAWAL|WITHDRWL)\b|\b(?:DES|REF|TRACE|CONF|ID)\s*[:#]|^(?:SQ|TST|PP)\s*\*',
+    caseSensitive: false,
+  );
+  static final _reference = RegExp(r'\d|[#*]|&(?:amp|#\d+);');
+  static final _atm = RegExp(
+    r'^ATM\s+(?:DEBIT|WITHDRAWAL|WITHDRWL)\b',
+    caseSensitive: false,
+  );
+  static const _displayNoise = {
+    'RCR',
+    'UTIL',
+    'UTILITIES',
+    'ATM',
+    'RECUR',
+    'BILLPAY',
+  };
+  final Map<String, String> _labels = {};
+
+  String label(String description, {String fallback = 'Expense'}) {
+    final value =
+        _labels[description] ??
+        description.replaceAll(RegExp(r'\s+'), ' ').trim();
+    return value.isEmpty ? fallback : value;
+  }
+}
+
+/// Turns descriptions into short merchant names: extract bank-layout names,
+/// remove IDs/boilerplate, detect shared location suffixes, then consolidate
+/// whole-word prefixes. Cleaning preserves non-Latin names.
 class _MerchantNames {
   _MerchantNames(Iterable<String> merchantTexts, {int minLocationStems = 3}) {
     final tokensByText = {

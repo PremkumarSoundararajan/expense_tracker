@@ -15,6 +15,8 @@ class GoogleDrivePermissionService {
   final Future<bool> Function(List<String>) _scopeRequester;
   final Set<String> _confirmedScopes = {};
 
+  void clearCachedPermissions() => _confirmedScopes.clear();
+
   static const _requiredWriteScopes = [
     drive.DriveApi.driveFileScope,
     sheets.SheetsApi.spreadsheetsScope,

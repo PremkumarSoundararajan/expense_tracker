@@ -111,11 +111,11 @@ const _gettingStarted = [
   _HelpTopic('How the monthly budget comparison works', [
     _HelpPoint(
       'Compared spending',
-      'Actual spending − Unexpected Occasional expenses.',
+      'Actual spending minus Unexpected Occasional expenses. Tap the spending number for categories, or Budget details for the calculation and budget editing.',
     ),
     _HelpPoint(
       'Included',
-      'Regular, Planned Occasional and Unknown/NA amounts count against your budget.',
+      'Regular, Planned Occasional and Unknown/NA spending count toward the budget. Classification is optional for this comparison.',
     ),
     _HelpPoint(
       'Review unclassified',

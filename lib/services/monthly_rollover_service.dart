@@ -72,6 +72,22 @@ class MonthlyBudgetSnapshotStore {
     return null;
   }
 
+  /// Editing a historical month must not replace the active month's budget.
+  Future<void> saveMonthBudget({
+    required DateTime month,
+    required double budget,
+    DateTime? now,
+  }) async {
+    if (!_isUsableBudget(budget)) throw ArgumentError.value(budget, 'budget');
+    final current = now ?? DateTime.now();
+    if (month.year == current.year && month.month == current.month) {
+      await saveCurrentMonthBudget(budget: budget, now: current);
+    } else {
+      final preferences = await SharedPreferences.getInstance();
+      await preferences.setDouble(keyForMonth(month), budget);
+    }
+  }
+
   static bool _isUsableBudget(double? budget) =>
       budget != null && budget.isFinite && budget >= 0;
 }
@@ -100,11 +116,11 @@ class MonthlyRolloverRecap {
 
   bool get stayedUnderBudget => spending == null
       ? budgetRelevantSpend <= monthlyBudget
-      : spending!.outcome(monthlyBudget) != BudgetOutcome.over;
+      : spending!.recordedOutcome(monthlyBudget) != BudgetOutcome.over;
 
   double get difference => stayedUnderBudget
-      ? monthlyBudget - (spending?.maximum ?? budgetRelevantSpend)
-      : (spending?.minimum ?? budgetRelevantSpend) - monthlyBudget;
+      ? monthlyBudget - budgetRelevantSpend
+      : budgetRelevantSpend - monthlyBudget;
 
   static MonthlyRolloverRecap? calculate({
     required List<Transaction> transactions,
@@ -141,8 +157,7 @@ class MonthlyRolloverRecap {
         )
         .toList(growable: false);
     final spending = BudgetSpending.fromTransactions(previousMonthTransactions);
-    if (previousMonthTransactions.isEmpty ||
-        spending.outcome(monthlyBudget) == BudgetOutcome.uncertain) {
+    if (previousMonthTransactions.isEmpty) {
       return null;
     }
 

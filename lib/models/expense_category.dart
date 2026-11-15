@@ -36,6 +36,7 @@ const suggestedExpenseSubcategories = <String, List<String>>{
     'Rideshare',
   ],
   'financial-obligations': [
+    'Life / Term Insurance',
     'Loan Payments',
     'Taxes',
     'Credit Card Fees',
@@ -82,10 +83,32 @@ List<ExpenseCategory> withHomeMaintenance(
     (c) =>
         c.id == homeMaintenanceCategory.id ||
         c.name.toLowerCase() == 'home maintenance',
-  ))
+  )) {
     result.add(homeMaintenanceCategory);
+  }
   return result;
 }
+
+List<ExpenseCategory> withRequiredExpenseCategories(
+  Iterable<ExpenseCategory> categories,
+) {
+  final result = withHomeMaintenance(categories);
+  if (!result.any(
+    (c) =>
+        c.id == lifeTermInsuranceCategory.id ||
+        c.name.toLowerCase() == lifeTermInsuranceCategory.name.toLowerCase(),
+  )) {
+    result.add(lifeTermInsuranceCategory);
+  }
+  return result;
+}
+
+const lifeTermInsuranceCategory = ExpenseCategory(
+  id: 'financial-obligations:life-term-insurance',
+  parentId: 'financial-obligations',
+  name: 'Life / Term Insurance',
+  isSuggested: true,
+);
 
 class ExpenseCategory {
   const ExpenseCategory({

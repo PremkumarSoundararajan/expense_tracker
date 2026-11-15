@@ -198,6 +198,13 @@ class DailyReminderService {
     await initialize();
     await _notifications.cancel(id: 831);
   }
+
+  /// Account deletion also dismisses outstanding test notifications.
+  Future<void> cancelAllForAccountDeletion() async {
+    await initialize();
+    await _notifications.cancelAll();
+    _nextScheduledReminder = null;
+  }
 }
 
 /// Shared by the native schedule and confirmation; constructs tomorrow in the

@@ -6,6 +6,32 @@ import 'package:pocket_ledger/services/monthly_rollover_service.dart';
 void main() {
   group('MonthlyBudgetSnapshotStore', () {
     test(
+      'editing a past month preserves the active and other historical budgets',
+      () async {
+        SharedPreferences.setMockInitialValues({
+          'monthly_target': 6000.0,
+          'budget_snapshot_2026_10': 5000.0,
+        });
+        final store = MonthlyBudgetSnapshotStore();
+        await store.saveMonthBudget(
+          month: DateTime(2026, 9),
+          budget: 4500,
+          now: DateTime(2026, 11, 15),
+        );
+        final prefs = await SharedPreferences.getInstance();
+        expect(prefs.getDouble('monthly_target'), 6000);
+        expect(prefs.getDouble('budget_snapshot_2026_10'), 5000);
+        expect(prefs.getDouble('budget_snapshot_2026_09'), 4500);
+        await store.saveMonthBudget(
+          month: DateTime(2026, 11),
+          budget: 7000,
+          now: DateTime(2026, 11, 15),
+        );
+        expect(prefs.getDouble('monthly_target'), 7000);
+        expect(await store.budgetForMonth(DateTime(2026, 9)), 4500);
+      },
+    );
+    test(
       'keeps the previous month budget when the active budget changes',
       () async {
         SharedPreferences.setMockInitialValues({'monthly_target': 5000});

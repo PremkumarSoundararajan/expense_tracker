@@ -110,38 +110,41 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
-  test('comparison includes unknown and planned but excludes unexpected spending', () {
-    for (final data in [
-      (110.0, 20.0, 100.0, BudgetOutcome.over),
-      (70.0, 20.0, 100.0, BudgetOutcome.within),
-      (90.0, 20.0, 100.0, BudgetOutcome.over),
-      (100.0, 0.0, 100.0, BudgetOutcome.exact),
-      (0.0, 0.0, 0.0, BudgetOutcome.exact),
-      (0.01, 0.0, 0.0, BudgetOutcome.over),
-      (99.99, 0.02, 100.0, BudgetOutcome.over),
-    ]) {
-      final amounts = BudgetSpending.fromAmounts(
-        total: data.$1 + data.$2 + 500,
-        regular: data.$1,
-        unexpected: 500,
+  test(
+    'comparison includes unknown and planned but excludes unexpected spending',
+    () {
+      for (final data in [
+        (110.0, 20.0, 100.0, BudgetOutcome.over),
+        (70.0, 20.0, 100.0, BudgetOutcome.within),
+        (90.0, 20.0, 100.0, BudgetOutcome.uncertain),
+        (100.0, 0.0, 100.0, BudgetOutcome.exact),
+        (0.0, 0.0, 0.0, BudgetOutcome.exact),
+        (0.01, 0.0, 0.0, BudgetOutcome.over),
+        (99.99, 0.02, 100.0, BudgetOutcome.uncertain),
+      ]) {
+        final amounts = BudgetSpending.fromAmounts(
+          total: data.$1 + data.$2 + 500,
+          regular: data.$1,
+          unexpected: 500,
+        );
+        expect(amounts.outcome(data.$3), data.$4);
+        expect(amounts.minimum, closeTo(data.$1, .000001));
+        expect(amounts.maximum, closeTo(data.$1 + data.$2, .000001));
+      }
+      final amounts = BudgetSpending.fromTransactions([
+        row('a', 60, ExpenseType.regular),
+        row('b', 50, ExpenseType.plannedOccasional),
+        row('c', 300, ExpenseType.unexpectedOccasional),
+        row('d', 10, ExpenseType.unknown),
+      ]);
+      expect(amounts.knownBudget, 110);
+      expect(amounts.outcome(100), BudgetOutcome.over);
+      expect(
+        amounts.total,
+        amounts.knownBudget + amounts.unexpected + amounts.unknown,
       );
-      expect(amounts.outcome(data.$3), data.$4);
-      expect(amounts.minimum, closeTo(data.$1 + data.$2, .000001));
-      expect(amounts.maximum, closeTo(data.$1 + data.$2, .000001));
-    }
-    final amounts = BudgetSpending.fromTransactions([
-      row('a', 60, ExpenseType.regular),
-      row('b', 50, ExpenseType.plannedOccasional),
-      row('c', 300, ExpenseType.unexpectedOccasional),
-      row('d', 10, ExpenseType.unknown),
-    ]);
-    expect(amounts.knownBudget, 110);
-    expect(amounts.outcome(100), BudgetOutcome.over);
-    expect(
-      amounts.total,
-      amounts.knownBudget + amounts.unexpected + amounts.unknown,
-    );
-  });
+    },
+  );
   test(
     'effective merchant type and explicit override control budget and coverage',
     () {
@@ -189,9 +192,9 @@ void main() {
     expect(data.total, 100);
     expect(data.unknown, 20);
     expect(data.classifiedPercent, 80);
-    expect(data.minimum, 100);
-    expect(data.maximum, 100);
-    expect(data.outcome(75), BudgetOutcome.over);
+    expect(data.minimum, 70);
+    expect(data.maximum, 110);
+    expect(data.outcome(75), BudgetOutcome.uncertain);
     expect(data.total, data.knownBudget + data.unexpected + data.unknown);
     final empty = BudgetSpending.fromTransactions([]);
     expect(empty.classifiedPercent, 0);
@@ -257,6 +260,8 @@ void main() {
       );
       expect(find.textContaining(scenario.$5), findsOneWidget);
       expect(find.text('Classification incomplete'), findsNothing);
+      await tester.tap(find.text('Budget details'));
+      await tester.pumpAndSettle();
       expect(
         find.byKey(const ValueKey('monthly-budget-coverage')),
         findsOneWidget,

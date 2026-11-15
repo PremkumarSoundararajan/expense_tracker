@@ -210,6 +210,11 @@ void main() {
     );
     expect(calls.where((call) => call.method == 'show'), isEmpty);
   });
+  test('account deletion cancels all reminders including test notifications', () async {
+    await DailyReminderService().cancelAllForAccountDeletion();
+    expect(calls.where((call) => call.method == 'cancelAll'), hasLength(1));
+    expect(calls.where((call) => call.method == 'zonedSchedule' || call.method == 'show'), isEmpty);
+  });
   test(
     'Android also verifies permission and retains the named small icon',
     () async {

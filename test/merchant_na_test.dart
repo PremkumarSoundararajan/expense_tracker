@@ -185,6 +185,19 @@ void main() {
       );
       await tester.pumpAndSettle();
       expect(find.text('Exclude all merchants <'), findsOneWidget);
+      expect(
+        find.text(r'2 merchants · $100 · 10.0% of spending'),
+        findsOneWidget,
+      );
+      expect(store.records.values.where((r) => r['na'] == true), isEmpty);
+      await tester.enterText(find.byKey(const ValueKey('na-threshold')), '50');
+      await tester.pumpAndSettle();
+      expect(find.text(r'0 merchants · $0 · 0.0% of spending'), findsOneWidget);
+      await tester.enterText(
+        find.byKey(const ValueKey('na-threshold')),
+        '1001',
+      );
+      await tester.pumpAndSettle();
       expect(find.textContaining('would be excluded'), findsNothing);
       expect(find.textContaining('Saved rule for current'), findsNothing);
       expect(find.byKey(const ValueKey('na-impact-warning')), findsOneWidget);
@@ -195,6 +208,10 @@ void main() {
         findsOneWidget,
       );
       expect(find.byKey(const ValueKey('review-na')), findsOneWidget);
+      expect(
+        find.textContaining('2 additional merchants excluded'),
+        findsOneWidget,
+      );
       expect(store.records.values.where((r) => r['na'] == true).length, 2);
       expect(store.records['m:alpha']?['na'], isNot(true));
       expect(
