@@ -91,7 +91,7 @@ void main() {
           findsNothing,
         );
         expect(find.text('By Category'), findsNothing);
-        expect(find.text('Budget: \$300'), findsOneWidget);
+        expect(find.text('Budget: \$500'), findsOneWidget);
         await tester.tap(find.byKey(const ValueKey('monthly-budget-details')));
         await tester.pumpAndSettle();
         await tester.tap(find.text('Edit budget'));
@@ -102,11 +102,72 @@ void main() {
                 find.byType(MonthlyBudgetTargetDialog),
               )
               .initialTarget,
-          300,
+          500,
         );
         await tester.tap(find.text('Cancel'));
         await tester.pumpAndSettle();
         expect(preferences.getDouble('monthly_target'), 500);
+        final originalAllowance = tester.widget<Text>(
+          find.textContaining('Safe to spend'),
+        ).data;
+        // Editing while viewing history updates the one shared budget.
+        await tester.tap(find.byKey(const ValueKey('monthly-budget-details')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Edit budget'));
+        await tester.pumpAndSettle();
+        expect(find.text('Applies to all months'), findsOneWidget);
+        await tester.enterText(
+          find.descendant(
+            of: find.byType(MonthlyBudgetTargetDialog),
+            matching: find.byType(TextField),
+          ),
+          '5000',
+        );
+        await tester.tap(find.text('Save Target'));
+        await tester.pumpAndSettle();
+        expect(preferences.getDouble('monthly_target'), 5000);
+        expect(
+          preferences.getKeys().where(
+            (key) => key.startsWith('budget_snapshot_'),
+          ),
+          isEmpty,
+        );
+        final allowanceAfterPastEdit = find.textContaining('Safe to spend');
+        final safeToSpend = tester.widget<Text>(allowanceAfterPastEdit).data;
+        expect(safeToSpend, isNot(originalAllowance));
+        for (final month in [
+          past,
+          DateTime(now.year, now.month - 1),
+          DateTime(now.year, now.month - 2),
+          DateTime(now.year, now.month),
+        ]) {
+          tester
+              .widget<MonthSelector>(find.byType(MonthSelector))
+              .onSelected(month);
+          await tester.pumpAndSettle();
+          expect(find.text(r'Budget: $5,000'), findsOneWidget);
+          expect(find.text(safeToSpend!), findsOneWidget);
+        }
+        // A subsequent edit from the current month also changes every past month.
+        await tester.tap(find.byKey(const ValueKey('monthly-budget-details')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Edit budget'));
+        await tester.pumpAndSettle();
+        await tester.enterText(
+          find.descendant(
+            of: find.byType(MonthlyBudgetTargetDialog),
+            matching: find.byType(TextField),
+          ),
+          '6000',
+        );
+        await tester.tap(find.text('Save Target'));
+        await tester.pumpAndSettle();
+        tester
+            .widget<MonthSelector>(find.byType(MonthSelector))
+            .onSelected(past);
+        await tester.pumpAndSettle();
+        expect(find.text(r'Budget: $6,000'), findsOneWidget);
+        expect(preferences.getDouble('monthly_target'), 6000);
         expect(find.text('TODAY'), findsOneWidget);
         expect(find.text('THIS YEAR'), findsOneWidget);
         final expectedYear = ledger

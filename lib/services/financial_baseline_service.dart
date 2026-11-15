@@ -42,11 +42,15 @@ class BaselineGroupMetrics {
 
 enum BaselineInsightReadiness { insufficient, provisional, representative }
 
+const baselineInsightMinimumCoverage = 50.0;
+const baselineInsightRepresentativeCoverage = 80.0;
+
 BaselineInsightReadiness baselineInsightReadiness(double classifiedPercentage) {
-  if (!classifiedPercentage.isFinite || classifiedPercentage < 50) {
+  if (!classifiedPercentage.isFinite ||
+      classifiedPercentage < baselineInsightMinimumCoverage) {
     return BaselineInsightReadiness.insufficient;
   }
-  if (classifiedPercentage < 80) {
+  if (classifiedPercentage < baselineInsightRepresentativeCoverage) {
     return BaselineInsightReadiness.provisional;
   }
   return BaselineInsightReadiness.representative;

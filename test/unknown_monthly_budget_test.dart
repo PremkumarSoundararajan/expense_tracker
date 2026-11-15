@@ -67,7 +67,7 @@ void main() {
           ),
         );
         expect(find.textContaining('Over budget'), findsOneWidget);
-        await tester.tap(find.text('Budget details'));
+        await tester.tap(find.byKey(const ValueKey('monthly-budget-details')));
         await tester.pumpAndSettle();
         expect(
           find.textContaining(r'Includes $7,508 unclassified'),
@@ -76,7 +76,7 @@ void main() {
         expect(find.textContaining('Under budget by'), findsNothing);
         expect(
           find.byKey(const ValueKey('daily-allowance-pill')),
-          current ? findsOneWidget : findsNothing,
+          findsNothing,
         );
         expect(find.byType(LinearProgressIndicator), findsOneWidget);
       },

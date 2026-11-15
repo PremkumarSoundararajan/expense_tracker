@@ -28,6 +28,8 @@ import 'models/expense_category.dart';
 import 'services/daily_reminder_service.dart';
 import 'services/financial_baseline_sheets_sync_service.dart';
 import 'services/financial_baseline_store.dart';
+import 'services/financial_baseline_service.dart';
+import 'widgets/insight_shortcuts.dart';
 import 'services/expense_category_store.dart';
 import 'services/expense_category_sheets_sync_service.dart';
 import 'services/google_drive_permission_service.dart';
@@ -56,6 +58,7 @@ import 'widgets/pocket_ledger_web_access.dart';
 import 'widgets/feedback_dialog.dart';
 import 'widgets/help_screen.dart';
 import 'widgets/monthly_budget_card.dart';
+import 'widgets/daily_allowance_dialog.dart';
 import 'widgets/monthly_budget_target_dialog.dart';
 import 'widgets/spending_summary_widget.dart';
 import 'widgets/suggested_budget_sheet.dart';
@@ -444,11 +447,8 @@ class _DashboardScreenState extends State<DashboardScreen>
   // token, so the user must grant Drive/Sheets access once.
   bool _needsDriveAccess = false;
   double? _monthlyTarget;
-  double? _previousMonthBudget;
   DateTime _heroMonth = monthStart(DateTime.now());
 
-  // Budget recorded for _heroMonth when it is a past month.
-  double? _heroMonthBudget;
   final SuggestedBudgetService _suggestedBudgetService =
       SuggestedBudgetService();
   bool _dailyReminderEnabled = false;
@@ -473,6 +473,22 @@ class _DashboardScreenState extends State<DashboardScreen>
   late final MerchantClassificationStore _merchantStore =
       MerchantClassificationStore(widget.account.email);
   List<FinancialBaselineMapping> _baselineMappings = [];
+  final _shortcutBaselineService = FinancialBaselineService();
+  List<Transaction>? _shortcutTransactions;
+  List<FinancialBaselineMapping>? _shortcutMappings;
+  FinancialBaselineSummary? _shortcutSummary;
+  final _baselineSectionKey = GlobalKey();
+
+  FinancialBaselineSummary get _baselineShortcutSummary {
+    if (_shortcutSummary == null || !identical(_shortcutTransactions, _transactions) ||
+        !identical(_shortcutMappings, _baselineMappings)) {
+      _shortcutTransactions = _transactions;
+      _shortcutMappings = _baselineMappings;
+      _shortcutSummary = _shortcutBaselineService.summarize(
+        transactions: _transactions, mappings: _baselineMappings);
+    }
+    return _shortcutSummary!;
+  }
   int _selectedTab = 0;
   Timer? _calendarRefreshTimer;
   final FinancialBaselineSheetsSyncService _baselineSheetsSyncService =
@@ -537,7 +553,6 @@ class _DashboardScreenState extends State<DashboardScreen>
     if (_accountDeletionStarted || _showDeletionRecovery) return;
     if (state == AppLifecycleState.resumed && mounted) {
       setState(() {});
-      _refreshPreviousMonthBudget();
       _scheduleCalendarRefresh();
     }
   }
@@ -551,46 +566,13 @@ class _DashboardScreenState extends State<DashboardScreen>
       () {
         if (!mounted) return;
         setState(() {});
-        _refreshPreviousMonthBudget();
         _scheduleCalendarRefresh();
       },
     );
   }
 
   void _selectHeroMonth(DateTime month) {
-    setState(() {
-      _heroMonth = month;
-      _heroMonthBudget = null;
-    });
-    unawaited(_loadHeroMonthBudget());
-  }
-
-  Future<void> _loadHeroMonthBudget() async {
-    final month = _heroMonth;
-    try {
-      final budget = await MonthlyBudgetSnapshotStore().budgetForMonth(month);
-      // Ignore the result if the user has moved to another month meanwhile.
-      if (!mounted || !isSameMonth(month, _heroMonth)) return;
-      setState(() => _heroMonthBudget = budget);
-    } catch (error) {
-      if (!mounted || !isSameMonth(month, _heroMonth)) return;
-      setState(() => _heroMonthBudget = null);
-      _showMessage('Could not load the budget for that month: $error');
-    }
-  }
-
-  Future<void> _refreshPreviousMonthBudget() async {
-    try {
-      final previousMonthBudget = await MonthlyBudgetSnapshotStore().initialize(
-        currentBudget: _monthlyTarget,
-      );
-      if (mounted) {
-        setState(() => _previousMonthBudget = previousMonthBudget);
-        unawaited(_loadHeroMonthBudget());
-      }
-    } catch (error) {
-      _showMessage('Could not update monthly budget history: $error');
-    }
+    setState(() => _heroMonth = month);
   }
 
   @override
@@ -620,7 +602,7 @@ class _DashboardScreenState extends State<DashboardScreen>
       final prefs = await SharedPreferences.getInstance();
       final savedCurrency = prefs.getString('currency_symbol');
       final savedMonthlyTarget = prefs.getDouble('monthly_target');
-      final previousMonthBudget = await MonthlyBudgetSnapshotStore().initialize(
+      final monthlyTarget = await MonthlyBudgetSnapshotStore().initialize(
         currentBudget: savedMonthlyTarget,
       );
       final reminderEnabled = prefs.getBool('daily_reminder_enabled') ?? false;
@@ -648,8 +630,7 @@ class _DashboardScreenState extends State<DashboardScreen>
       if (mounted) {
         setState(() {
           if (savedCurrency != null) _currency = savedCurrency;
-          _monthlyTarget = savedMonthlyTarget;
-          _previousMonthBudget = previousMonthBudget;
+          _monthlyTarget = monthlyTarget;
           _dailyReminderEnabled = reminderEnabled;
           _dailyReminderTime = TimeOfDay(
             hour: reminderHour,
@@ -664,7 +645,6 @@ class _DashboardScreenState extends State<DashboardScreen>
           _expenseCategories = savedCategories;
           _categoryMappings = categoryMappings;
         });
-        unawaited(_loadHeroMonthBudget());
       }
 
       // Retire scan reminders without changing normal expense reminders.
@@ -975,16 +955,21 @@ class _DashboardScreenState extends State<DashboardScreen>
     if (customize == true && mounted) await _openExpenseCategorySettings();
   }
 
-  Future<void> _openExpenseCategorySettings() async {
+  Future<List<ExpenseCategory>> _openExpenseCategorySettings() async {
+    Future<void>? pendingSave;
     await Navigator.of(context).push<void>(
       MaterialPageRoute(
         builder: (_) => ExpenseCategoryManagementScreen(
           categories: withRequiredExpenseCategories(_expenseCategories),
-          onChanged: (categories) =>
-              unawaited(_saveExpenseCategories(categories)),
+          onChanged: (categories) {
+            pendingSave = _saveExpenseCategories(categories);
+            unawaited(pendingSave);
+          },
         ),
       ),
     );
+    await pendingSave;
+    return _activeExpenseCategories;
   }
 
   void _showCurrencyPicker() {
@@ -1527,6 +1512,30 @@ class _DashboardScreenState extends State<DashboardScreen>
   bool _showRemainingClassification = false;
   bool _reviewUnknownOnly = false;
   int _classificationEntry = 0;
+
+  Future<void> _explainInsightLock(String feature) async {
+    final summary = _baselineShortcutSummary;
+    final coverage = (summary.classifiedPercentage * 10).floor() / 10;
+    final review = await showDialog<bool>(context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Unlock $feature'),
+        content: Text('Classify at least ${baselineInsightMinimumCoverage.toStringAsFixed(0)}% of spending as Essential or Potentially Flexible in Financial Baseline.\n\n'
+          '${coverage.toStringAsFixed(1)}% is currently classified by Essentiality. Save your choices to unlock these insights.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Not now')),
+          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Classify expenses')),
+        ],
+      ));
+    if (review != true || !mounted) return;
+    _reviewRemainingClassification(unknownOnly: false);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final section = _baselineSectionKey.currentContext;
+      if (section != null) {
+        Scrollable.ensureVisible(section,
+          duration: const Duration(milliseconds: 250), alignment: 0);
+      }
+    });
+  }
   void _reviewRemainingClassification({bool unknownOnly = true}) {
     final dashboard = ModalRoute.of(context);
     if (dashboard != null) {
@@ -2334,7 +2343,6 @@ class _DashboardScreenState extends State<DashboardScreen>
   }
 
   Future<void> _showMonthlyTargetDialog() async {
-    final budgetMonth = _heroMonth;
     final suggestion = _suggestedBudgetService.suggest(
       transactions: _transactions,
     );
@@ -2342,7 +2350,7 @@ class _DashboardScreenState extends State<DashboardScreen>
       context: context,
       builder: (_) => MonthlyBudgetTargetDialog(
         currencySymbol: _currency,
-        initialTarget: isSameMonth(budgetMonth, DateTime.now()) ? _monthlyTarget : _heroMonthBudget,
+        initialTarget: _monthlyTarget,
         onReviewUnclassified: _reviewRemainingClassification,
         suggestion: suggestion,
         unknownCount: _transactions
@@ -2356,7 +2364,7 @@ class _DashboardScreenState extends State<DashboardScreen>
     );
 
     if (target == null || !mounted) return;
-    await _saveMonthlyTarget(target, month: budgetMonth);
+    await _saveMonthlyTarget(target);
   }
 
   Future<void> _showSuggestedBudget() async {
@@ -2374,20 +2382,14 @@ class _DashboardScreenState extends State<DashboardScreen>
     await _saveMonthlyTarget(applied);
   }
 
-  Future<void> _saveMonthlyTarget(double target, {DateTime? month}) async {
-    return _ledgerOperation(() => _saveMonthlyTargetInternal(target, month: month));
+  Future<void> _saveMonthlyTarget(double target) async {
+    return _ledgerOperation(() => _saveMonthlyTargetInternal(target));
   }
 
-  Future<void> _saveMonthlyTargetInternal(double target, {DateTime? month}) async {
+  Future<void> _saveMonthlyTargetInternal(double target) async {
     try {
-      final current = DateTime.now();
-      final targetMonth = month ?? current;
-      await MonthlyBudgetSnapshotStore().saveMonthBudget(month: targetMonth, budget: target);
-      if (mounted) setState(() {
-        if (isSameMonth(targetMonth, current)) _monthlyTarget = target;
-        else if (isSameMonth(targetMonth, _heroMonth)) _heroMonthBudget = target;
-        if (isSameMonth(targetMonth, DateTime(current.year, current.month - 1))) _previousMonthBudget = target;
-      });
+      await MonthlyBudgetSnapshotStore().saveBudget(budget: target);
+      if (mounted) setState(() => _monthlyTarget = target);
     } catch (error) {
       _showMessage('Could not save monthly target: $error');
     }
@@ -3124,7 +3126,7 @@ class _DashboardScreenState extends State<DashboardScreen>
     final monthlyRolloverRecap = _selectedTab == 0
         ? MonthlyRolloverRecap.calculate(
             transactions: _transactions,
-            monthlyBudget: _previousMonthBudget,
+            monthlyBudget: _monthlyTarget,
           )
         : null;
     final insightMessage = _selectedTab == 2
@@ -3159,6 +3161,12 @@ class _DashboardScreenState extends State<DashboardScreen>
             t.date.year == _heroMonth.year && t.date.month == _heroMonth.month,
       ),
     );
+    final today = DateTime.now();
+    final currentMonthSpending = isSameMonth(_heroMonth, today)
+        ? monthSpending
+        : BudgetSpending.fromTransactions(_transactions.where((t) =>
+            t.date.year == today.year && t.date.month == today.month));
+    final dailyAllowance = currentMonthSpending.dailyAllowance(_monthlyTarget, now: today);
     // Responsive layout: one column on phones / narrow windows, two columns
     // (dashboard + trends | add-expense form) on wide web or desktop windows.
     final screenWidth = MediaQuery.sizeOf(context).width;
@@ -3199,7 +3207,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                       spending: monthSpending,
                       currentSpent: monthSpending.total,
                       currencySymbol: _currency,
-                      monthlyTarget: isSameMonth(_heroMonth, DateTime.now()) ? _monthlyTarget : _heroMonthBudget,
+                      monthlyTarget: _monthlyTarget,
                       onReviewUnclassified: _reviewMonthUnclassified,
                       rolloverRecap: monthlyRolloverRecap,
                       selectedMonth: _heroMonth,
@@ -3211,13 +3219,14 @@ class _DashboardScreenState extends State<DashboardScreen>
                     ),
                   ),
                   SizedBox(height: isWide ? 10 : 8),
-                  Row(
+                  IntrinsicHeight(child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       Expanded(
                         child: GestureDetector(
                           onTap: () => _showCategoryBreakdown('Today', 'today'),
-                          child: SizedBox(
-                            height: screenWidth < 360 ? 132 : 116,
+                          child: ConstrainedBox(
+                            constraints: const BoxConstraints(minHeight: 116),
                             child: _SummaryCard(
                               title: 'TODAY',
                               amount: formatWholeCurrency(
@@ -3227,6 +3236,19 @@ class _DashboardScreenState extends State<DashboardScreen>
                               subtitle: formatExpenseCount(todayExpenseCount),
                               icon: Icons.calendar_today,
                               matchPanels: isWide,
+                              dailyAllowance: dailyAllowance == null ? null :
+                                  formatWholeCurrency(dailyAllowance.floorToDouble(), _currency),
+                              onDailyAllowanceTapped: dailyAllowance == null
+                                  ? null
+                                  : () => showDialog<void>(
+                                      context: context,
+                                      builder: (_) => DailyAllowanceDialog(
+                                        spending: currentMonthSpending,
+                                        budget: _monthlyTarget!,
+                                        currencySymbol: _currency,
+                                        date: today,
+                                      ),
+                                    ),
                             ),
                           ),
                         ),
@@ -3239,8 +3261,8 @@ class _DashboardScreenState extends State<DashboardScreen>
                             'year',
                             targetMonth: monthStart(DateTime.now()),
                           ),
-                          child: SizedBox(
-                            height: screenWidth < 360 ? 132 : 116,
+                          child: ConstrainedBox(
+                            constraints: const BoxConstraints(minHeight: 116),
                             child: _SummaryCard(
                               title: 'THIS YEAR',
                               amount: formatWholeCurrency(
@@ -3258,7 +3280,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                         ),
                       ),
                     ],
-                  ),
+                  )),
                 ],
               ),
             ),
@@ -3278,6 +3300,7 @@ class _DashboardScreenState extends State<DashboardScreen>
               selectedCategory: _selectedCategory,
               categories: _activeExpenseCategories,
               transactions: _transactions,
+              onManageCategories: _openExpenseCategorySettings,
               onCategorySelected: (category) {
                 final selected = _activeExpenseCategories
                     .where((item) => item.name == category)
@@ -3580,103 +3603,27 @@ class _DashboardScreenState extends State<DashboardScreen>
         );
         break;
       case 2:
-        final shortcuts = <({String label, IconData icon, VoidCallback onTap})>[
-          (
-            label: 'Spending trends',
-            icon: Icons.trending_up,
-            onTap: () => _openInsight(
-              'Spending trends',
-              Column(
-                children: [
-                  SpendingSummaryWidget(
-                    transactions: _transactions,
-                    currencySymbol: _currency,
-                  ),
-                  if (insightMessage != null)
-                    _SpendingInsightCard(message: insightMessage),
-                ],
-              ),
-            ),
-          ),
-          (
-            label: 'Spending spots',
-            icon: Icons.storefront_outlined,
-            onTap: () => _openInsight(
-              'Favourite spending spots',
-              FavouriteSpendingSpotsWidget(
-                transactions: _transactions,
-                currencySymbol: _currency,
-              ),
-            ),
-          ),
-          (
-            label: 'Savings insights',
-            icon: Icons.insights_outlined,
-            onTap: _openFinancialBaselineDetails,
-          ),
-          (
-            label: 'Suggested budget',
-            icon: Icons.calculate_outlined,
-            onTap: _showSuggestedBudget,
-          ),
-          (
-            label: 'Spending targets',
-            icon: Icons.flag_outlined,
-            onTap: _openSpendingTargets,
-          ),
-        ];
         selectedPage = scrollablePage([
-          LayoutBuilder(
-            builder: (context, constraints) {
-              final columns = constraints.maxWidth >= 650 ? 5 : 3;
-              final itemWidth =
-                  (constraints.maxWidth - (columns - 1) * 12) / columns;
-              return Wrap(
-                key: const ValueKey('insight-shortcuts'),
-                spacing: 12,
-                runSpacing: 12,
-                children: [
-                  for (final shortcut in shortcuts)
-                    SizedBox(
-                      width: itemWidth,
-                      child: OutlinedButton(
-                        onPressed: shortcut.onTap,
-                        style: OutlinedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 12,
-                          ),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(14),
-                          ),
-                        ),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(shortcut.icon, size: 26),
-                            const SizedBox(height: 8),
-                            SizedBox(
-                              height: 34,
-                              child: Center(
-                                child: Text(
-                                  shortcut.label,
-                                  textAlign: TextAlign.center,
-                                  maxLines: 2,
-                                  style: const TextStyle(fontSize: 12),
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                ],
-              );
-            },
+          InsightShortcuts(
+            summary: _baselineShortcutSummary,
+            onTrends: () => _openInsight(
+              'Spending trends',
+              Column(children: [
+                SpendingSummaryWidget(transactions: _transactions, currencySymbol: _currency),
+                if (insightMessage != null) _SpendingInsightCard(message: insightMessage),
+              ]),
+            ),
+            onSpots: () => _openInsight(
+              'Favourite spending spots',
+              FavouriteSpendingSpotsWidget(transactions: _transactions, currencySymbol: _currency),
+            ),
+            onBudget: _showSuggestedBudget,
+            onSavings: _openFinancialBaselineDetails,
+            onTargets: _openSpendingTargets,
+            onLocked: _explainInsightLock,
           ),
           const SizedBox(height: 24),
-          _merchantPanel(),
+          KeyedSubtree(key: _baselineSectionKey, child: _merchantPanel()),
         ]);
         break;
       default:
@@ -3982,6 +3929,8 @@ class _SummaryCard extends StatelessWidget {
   final String amount;
   final String subtitle;
   final IconData icon;
+  final String? dailyAllowance;
+  final VoidCallback? onDailyAllowanceTapped;
 
   /// When true (wide layouts) the tile uses the same card style as the
   /// neighbouring panels while keeping the summary content compact.
@@ -3993,12 +3942,24 @@ class _SummaryCard extends StatelessWidget {
     required this.subtitle,
     required this.icon,
     this.matchPanels = false,
+    this.dailyAllowance,
+    this.onDailyAllowanceTapped,
   });
 
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
+    final compactAllowance = MediaQuery.sizeOf(context).width >= 360 &&
+        MediaQuery.textScalerOf(context).scale(11.5) <= 13.8 &&
+        (dailyAllowance?.length ?? 0) <= 7;
+    final allowanceText = Text(
+      'Safe to spend $dailyAllowance/day',
+      maxLines: compactAllowance ? 1 : null,
+      style: TextStyle(fontSize: 11.5, color: colorScheme.primary,
+        fontWeight: FontWeight.w600),
+    );
     final content = Column(
+      mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
@@ -4043,6 +4004,31 @@ class _SummaryCard extends StatelessWidget {
           style: Theme.of(context).textTheme.bodySmall
               ?.copyWith(color: colorScheme.onSurfaceVariant),
         ),
+        if (dailyAllowance != null) ...[
+          const SizedBox(height: 8),
+          Tooltip(
+            message: 'How safe to spend is calculated',
+            child: Material(
+              color: colorScheme.primaryContainer.withValues(alpha: .35),
+              borderRadius: BorderRadius.circular(16),
+              child: InkWell(
+                key: const ValueKey('daily-allowance-pill'),
+                borderRadius: BorderRadius.circular(16),
+                onTap: onDailyAllowanceTapped,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
+                  child: compactAllowance
+                      ? FittedBox(
+                          fit: BoxFit.scaleDown,
+                          alignment: Alignment.centerLeft,
+                          child: allowanceText,
+                        )
+                      : allowanceText,
+                ),
+              ),
+            ),
+          ),
+        ],
       ],
     );
 

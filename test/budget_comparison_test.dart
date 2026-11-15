@@ -260,7 +260,7 @@ void main() {
       );
       expect(find.textContaining(scenario.$5), findsOneWidget);
       expect(find.text('Classification incomplete'), findsNothing);
-      await tester.tap(find.text('Budget details'));
+      await tester.tap(find.byKey(const ValueKey('monthly-budget-details')));
       await tester.pumpAndSettle();
       expect(
         find.byKey(const ValueKey('monthly-budget-coverage')),

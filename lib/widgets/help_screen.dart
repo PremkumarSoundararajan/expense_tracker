@@ -41,7 +41,7 @@ const _gettingStarted = [
     ),
     _HelpPoint(
       'Need a category?',
-      'Create it in Settings → Expense categories.',
+      'Tap Add a new category in the category chooser, or open Settings → Expense categories.',
     ),
     _HelpPoint(
       'Build awareness',
@@ -92,7 +92,7 @@ const _gettingStarted = [
   _HelpTopic('Home: month, today and year', [
     _HelpPoint(
       'This Month',
-      'See actual spending. Expand to set a budget, compare spending or browse past months.',
+      'See actual spending and browse past months. Tap the budget or info icon to view details or edit it.',
     ),
     _HelpPoint('Today', 'See expenses dated today.'),
     _HelpPoint(
@@ -109,6 +109,10 @@ const _gettingStarted = [
     ),
   ]),
   _HelpTopic('How the monthly budget comparison works', [
+    _HelpPoint(
+      'One monthly budget',
+      'Changing the budget applies to every month, including past comparisons, and updates today’s safe-to-spend amount.',
+    ),
     _HelpPoint(
       'Compared spending',
       'Actual spending minus Unexpected Occasional expenses. Tap the spending number for categories, or Budget details for the calculation and budget editing.',
@@ -288,6 +292,10 @@ const _insights = [
     ),
   ]),
   _HelpTopic('Savings insights and reduction plans', [
+    _HelpPoint(
+      'Unlock insights',
+      'Savings insights and Spending targets unlock after you save Essentiality choices for at least 50% of spending. Results remain provisional below 80%. Tap a lock to continue classification.',
+    ),
     _HelpPoint(
       'Understand',
       'Compare Essential, Potentially Flexible and unclassified spending as monthly amounts from completed history.',

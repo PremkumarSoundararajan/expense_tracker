@@ -4,9 +4,12 @@ import '../models/transaction.dart';
 import 'transaction_filter.dart';
 import 'budget_comparison.dart';
 
+/// One monthly budget is used for current and historical comparisons.
+/// The class name is retained for compatibility with existing callers.
 class MonthlyBudgetSnapshotStore {
   static const _activeBudgetKey = 'monthly_target';
 
+  // Legacy key format, used only to identify and remove old overrides.
   static String keyForMonth(DateTime month) =>
       'budget_snapshot_${month.year}_${month.month.toString().padLeft(2, '0')}';
 
@@ -15,76 +18,59 @@ class MonthlyBudgetSnapshotStore {
     DateTime? now,
   }) async {
     final preferences = await SharedPreferences.getInstance();
-    final currentDate = now ?? DateTime.now();
-    final previousMonth = DateTime(currentDate.year, currentDate.month - 1);
-    final previousMonthKey = keyForMonth(previousMonth);
-    var previousMonthBudget = preferences.getDouble(previousMonthKey);
-
-    if (previousMonthBudget == null &&
-        currentBudget != null &&
-        _isUsableBudget(currentBudget)) {
-      await preferences.setDouble(previousMonthKey, currentBudget);
-      previousMonthBudget = currentBudget;
+    final saved = preferences.getDouble(_activeBudgetKey);
+    final budget = _isUsableBudget(saved) ? saved : currentBudget;
+    if (!_isUsableBudget(budget)) {
+      await _removeLegacySnapshots(preferences);
+      return null;
     }
-
-    final currentMonthKey = keyForMonth(currentDate);
-    if (preferences.getDouble(currentMonthKey) == null &&
-        currentBudget != null &&
-        _isUsableBudget(currentBudget)) {
-      await preferences.setDouble(currentMonthKey, currentBudget);
+    if (!_isUsableBudget(saved)) {
+      await saveBudget(budget: budget!);
+    } else {
+      await _removeLegacySnapshots(preferences);
     }
+    return budget;
+  }
 
-    return previousMonthBudget;
+  Future<void> saveBudget({required double budget}) async {
+    if (!_isUsableBudget(budget)) throw ArgumentError.value(budget, 'budget');
+    final preferences = await SharedPreferences.getInstance();
+    if (!await preferences.setDouble(_activeBudgetKey, budget)) {
+      throw StateError('Could not save the monthly budget.');
+    }
+    await _removeLegacySnapshots(preferences);
   }
 
   Future<void> saveCurrentMonthBudget({
     required double budget,
     DateTime? now,
-  }) async {
-    final preferences = await SharedPreferences.getInstance();
-    await preferences.setDouble(_activeBudgetKey, budget);
-    await preferences.setDouble(keyForMonth(now ?? DateTime.now()), budget);
-  }
+  }) => saveBudget(budget: budget);
 
   Future<double?> budgetForMonth(DateTime month) async {
-    final preferences = await SharedPreferences.getInstance();
-
-    // 1. Try exact month snapshot first
-    var target = preferences.getDouble(keyForMonth(month));
-    if (target != null && _isUsableBudget(target)) return target;
-
-    // 2. Fallback: Search backwards through recorded history to find the closest prior budget
-    var checkMonth = DateTime(month.year, month.month - 1);
-    // Look back up to 24 months for a recorded snapshot
-    for (var i = 0; i < 24; i++) {
-      target = preferences.getDouble(keyForMonth(checkMonth));
-      if (target != null && _isUsableBudget(target)) return target;
-      checkMonth = DateTime(checkMonth.year, checkMonth.month - 1);
-    }
-
-    // 3. Ultimate Fallback: If looking backward fails (it's older than any snapshot),
-    // use the earliest available snapshot, or default to the current active monthly target.
-    final activeTarget = preferences.getDouble('monthly_target');
-    if (activeTarget != null && _isUsableBudget(activeTarget)) {
-      return activeTarget;
-    }
-
-    return null;
+    final budget = (await SharedPreferences.getInstance()).getDouble(
+      _activeBudgetKey,
+    );
+    return _isUsableBudget(budget) ? budget : null;
   }
 
-  /// Editing a historical month must not replace the active month's budget.
+  /// The selected month never changes the scope: every edit updates all months.
   Future<void> saveMonthBudget({
     required DateTime month,
     required double budget,
     DateTime? now,
-  }) async {
-    if (!_isUsableBudget(budget)) throw ArgumentError.value(budget, 'budget');
-    final current = now ?? DateTime.now();
-    if (month.year == current.year && month.month == current.month) {
-      await saveCurrentMonthBudget(budget: budget, now: current);
-    } else {
-      final preferences = await SharedPreferences.getInstance();
-      await preferences.setDouble(keyForMonth(month), budget);
+  }) => saveBudget(budget: budget);
+
+  static Future<void> _removeLegacySnapshots(
+    SharedPreferences preferences,
+  ) async {
+    for (final key
+        in preferences
+            .getKeys()
+            .where((key) => key.startsWith('budget_snapshot_'))
+            .toList()) {
+      if (!await preferences.remove(key)) {
+        throw StateError('Could not remove an old monthly budget override.');
+      }
     }
   }
 

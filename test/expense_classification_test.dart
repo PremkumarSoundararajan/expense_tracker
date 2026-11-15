@@ -318,7 +318,7 @@ void main() {
       expect(find.textContaining('counted toward budget'), findsNothing);
       expect(find.text('Over budget'), findsOneWidget);
       expect(find.text(r'$6,500 over'), findsOneWidget);
-      await tester.tap(find.text('Budget details'));
+      await tester.tap(find.byKey(const ValueKey('monthly-budget-details')));
       await tester.pumpAndSettle();
       expect(find.text('Unexpected expenses excluded'), findsOneWidget);
       expect(find.text(r'-$1,500'), findsOneWidget);

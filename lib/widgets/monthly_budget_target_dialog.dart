@@ -103,6 +103,7 @@ class _MonthlyBudgetTargetDialogState extends State<MonthlyBudgetTargetDialog> {
                 },
                 decoration: InputDecoration(
                   labelText: 'Monthly spending limit',
+                  helperText: 'Applies to all months',
                   prefixText: widget.currencySymbol,
                   errorText: _validationError,
                   border: const OutlineInputBorder(),

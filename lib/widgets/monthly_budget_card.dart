@@ -78,9 +78,7 @@ class MonthlyBudgetCard extends StatelessWidget {
         : 0.0;
     final days =
         DateUtils.getDaysInMonth(month.year, month.month) - date.day + 1;
-    final daily = current && hasBudget
-        ? ((remaining.clamp(0, double.infinity) / days * 100).floor() / 100)
-        : 0.0;
+    final daily = current ? amounts.dailyAllowance(target, now: date) : null;
     String money(double value) => formatFullCurrency(value, currencySymbol);
     String whole(double value) => formatWholeCurrency(value, currencySymbol);
     final status = switch (result) {
@@ -178,7 +176,7 @@ class MonthlyBudgetCard extends StatelessWidget {
                     color: statusColor,
                   ),
                 if (hasBudget && current)
-                  row('Daily allowance ($days days left)', money(daily)),
+                  row('Daily allowance ($days days left)', money(daily!)),
                 if (amounts.hasUnknown)
                   TextButton(
                     key: const ValueKey('monthly-budget-coverage'),
@@ -221,30 +219,15 @@ class MonthlyBudgetCard extends StatelessWidget {
       );
     }
 
-    final total = Semantics(
-      button: true,
-      label: 'View spending by category',
-      child: InkWell(
-        key: const ValueKey('monthly-breakdown-tap-target'),
-        onTap: onCalendarPressed,
-        borderRadius: BorderRadius.circular(8),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 4),
-          child: FittedBox(
-            fit: BoxFit.scaleDown,
-            alignment: Alignment.centerLeft,
-            child: Text(
-              whole(amounts.total),
-              maxLines: 1,
-              style: theme.textTheme.headlineLarge?.copyWith(
-                fontSize: 38,
-                height: 1.05,
-                letterSpacing: -.5,
-                color: colors.primary,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-          ),
+    final total = FittedBox(
+      fit: BoxFit.scaleDown,
+      alignment: Alignment.centerLeft,
+      child: Text(
+        whole(amounts.total),
+        maxLines: 1,
+        style: theme.textTheme.headlineMedium?.copyWith(
+          color: colors.primary,
+          fontWeight: FontWeight.bold,
         ),
       ),
     );
@@ -254,6 +237,18 @@ class MonthlyBudgetCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
+          if (showHeading && current) ...[
+            Text(
+              'THIS MONTH',
+              key: const ValueKey('current-month-label'),
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.bold,
+                color: colors.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 4),
+          ],
           if (showHeading)
             if (onMonthSelected != null)
               MonthSelector(
@@ -270,47 +265,68 @@ class MonthlyBudgetCard extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
               Expanded(
-                flex: 3,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Container(
-                      key: const ValueKey('actual-expense-label'),
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 3,
-                      ),
-                      decoration: BoxDecoration(
-                        color: colors.surfaceContainerHighest,
-                        borderRadius: BorderRadius.circular(6),
-                      ),
-                      child: Text(
-                        'Actual expense',
-                        style: theme.textTheme.labelMedium,
+                child: Semantics(
+                  button: true,
+                  label: 'View spending by category',
+                  child: InkWell(
+                    key: const ValueKey('monthly-breakdown-tap-target'),
+                    onTap: onCalendarPressed,
+                    borderRadius: BorderRadius.circular(8),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 4),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'ACTUAL EXPENSE',
+                            key: const ValueKey('actual-expense-label'),
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                              color: colors.onSurfaceVariant,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          total,
+                        ],
                       ),
                     ),
-                    const SizedBox(height: 6),
-                    total,
-                  ],
+                  ),
                 ),
               ),
               const SizedBox(width: 12),
               Flexible(
-                flex: 2,
                 child: Align(
                   alignment: Alignment.bottomRight,
-                  child: Padding(
-                    padding: const EdgeInsets.only(bottom: 4),
-                    child: Text(
-                      hasBudget
-                          ? 'Budget: ${whole(target)}'
-                          : 'Budget: Not set',
-                      key: const ValueKey('budget-kpi-value'),
-                      textAlign: TextAlign.right,
-                      style: theme.textTheme.titleSmall?.copyWith(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w600,
-                        color: colors.onSurfaceVariant,
+                  child: Tooltip(
+                    message: 'Budget details',
+                    child: TextButton(
+                      key: const ValueKey('monthly-budget-details'),
+                      onPressed: details,
+                      style: TextButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 4),
+                        minimumSize: const Size(0, 48),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Flexible(
+                            child: Text(
+                              hasBudget
+                                  ? 'Budget: ${whole(target)}'
+                                  : 'Budget: Not set',
+                              key: const ValueKey('budget-kpi-value'),
+                              textAlign: TextAlign.right,
+                              style: theme.textTheme.titleSmall?.copyWith(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w600,
+                                color: colors.primary,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          const Icon(Icons.info_outline, size: 18),
+                        ],
                       ),
                     ),
                   ),
@@ -382,61 +398,6 @@ class MonthlyBudgetCard extends StatelessWidget {
               ),
             ],
           ],
-          const SizedBox(height: 18),
-          Row(
-            children: [
-              if (current && hasBudget)
-                Expanded(
-                  child: Align(
-                    alignment: Alignment.centerLeft,
-                    child: Container(
-                      key: const ValueKey('daily-allowance-pill'),
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 8,
-                      ),
-                      decoration: BoxDecoration(
-                        color: colors.primaryContainer.withValues(alpha: .35),
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: Text(
-                        'Can spend: ${money(daily)} / day',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.labelLarge?.copyWith(
-                          fontSize: 13,
-                        ),
-                      ),
-                    ),
-                  ),
-                )
-              else
-                const Spacer(),
-              const SizedBox(width: 8),
-              ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 124),
-                child: TextButton(
-                  key: const ValueKey('monthly-budget-details'),
-                  onPressed: details,
-                  style: TextButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(horizontal: 8),
-                    minimumSize: const Size(0, 36),
-                  ),
-                  child: const FittedBox(
-                    fit: BoxFit.scaleDown,
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text('Budget details'),
-                        SizedBox(width: 2),
-                        Icon(Icons.chevron_right, size: 18),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
         ],
       ),
     );

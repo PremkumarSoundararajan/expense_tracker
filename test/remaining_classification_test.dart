@@ -189,7 +189,7 @@ void main() {
       await tester.pumpWidget(MaterialApp(home: Scaffold(body: child)));
       await tester.pumpAndSettle();
       if (surface == 'monthly') {
-        await tester.tap(find.text('Budget details'));
+        await tester.tap(find.byKey(const ValueKey('monthly-budget-details')));
         await tester.pumpAndSettle();
       }
       final reviewLink = surface == 'monthly'

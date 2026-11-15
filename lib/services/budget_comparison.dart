@@ -116,4 +116,14 @@ class BudgetSpending {
 
   double recordedRemaining(double budget) =>
       (_cents(budget) - (totalCents - unexpectedCents)) / 100;
+
+  /// Remaining current-month budget spread over today and the days still ahead.
+  /// Round down to cents so the displayed allowance never exceeds the balance.
+  double? dailyAllowance(double? budget, {DateTime? now}) {
+    if (budget == null || !budget.isFinite || budget < 0) return null;
+    final date = now ?? DateTime.now();
+    final days = DateTime(date.year, date.month + 1, 0).day - date.day + 1;
+    final centsLeft = _cents(budget) - (totalCents - unexpectedCents);
+    return centsLeft <= 0 ? 0 : (centsLeft ~/ days) / 100;
+  }
 }

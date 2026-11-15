@@ -49,8 +49,22 @@ void main() {
     );
   }
 
+  testWidgets('This month label follows the selected month', (tester) async {
+    await show(tester);
+    expect(find.text('THIS MONTH'), findsOneWidget);
+    expect(find.text('November 2026'), findsOneWidget);
+
+    await show(tester, month: DateTime(2026, 10));
+    expect(find.text('THIS MONTH'), findsNothing);
+    expect(find.text('October 2026'), findsOneWidget);
+
+    await show(tester, month: DateTime(2026, 11));
+    expect(find.text('THIS MONTH'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   for (final width in [320.0, 390.0]) {
-    testWidgets('large daily allowance stays separate from details at $width', (
+    testWidgets('budget amount and info open details at $width', (
       tester,
     ) async {
       await show(
@@ -61,14 +75,16 @@ void main() {
         unexpected: 200,
         budget: 20000,
       );
-      final pill = tester.getRect(
-        find.byKey(const ValueKey('daily-allowance-pill')),
-      );
-      final details = tester.getRect(
-        find.byKey(const ValueKey('monthly-budget-details')),
-      );
-      expect(pill.right, lessThanOrEqualTo(details.left));
-      expect(find.text('Can spend: \$1,208.93 / day'), findsOneWidget);
+      expect(find.byKey(const ValueKey('daily-allowance-pill')), findsNothing);
+      expect(find.text('Budget details'), findsNothing);
+      await tester.tap(find.text(r'Budget: $20,000'));
+      await tester.pumpAndSettle();
+      expect(find.text('Budget details — November 2026'), findsOneWidget);
+      await tester.tap(find.byTooltip('Close budget details'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byIcon(Icons.info_outline));
+      await tester.pumpAndSettle();
+      expect(find.text('Budget details — November 2026'), findsOneWidget);
       expect(tester.takeException(), isNull);
     });
   }
@@ -90,8 +106,11 @@ void main() {
         expect(find.text(r'$3,357'), findsOneWidget);
         expect(find.text('Within budget'), findsOneWidget);
         expect(find.text(r'$1,003 left'), findsOneWidget);
-        expect(find.text(r'Can spend: $62.65 / day'), findsOneWidget);
-        expect(find.text('Actual expense'), findsOneWidget);
+        expect(
+          find.byKey(const ValueKey('daily-allowance-pill')),
+          findsNothing,
+        );
+        expect(find.text('ACTUAL EXPENSE'), findsOneWidget);
         expect(find.text(r'Budget: $4,349'), findsOneWidget);
         expect(find.textContaining('counted toward budget'), findsNothing);
         final kpis = tester.widget<Row>(
@@ -116,11 +135,12 @@ void main() {
           tester.getSize(find.byType(MonthlyBudgetCard)).height,
           lessThan(360),
         );
-        await tester.tap(
-          find.byKey(const ValueKey('monthly-breakdown-tap-target')),
-        );
+        await tester.tap(find.text('ACTUAL EXPENSE'));
         expect(drilled, isTrue);
-        await tester.tap(find.text('Budget details'));
+        drilled = false;
+        await tester.tap(find.text(r'$3,357'));
+        expect(drilled, isTrue);
+        await tester.tap(find.byKey(const ValueKey('monthly-budget-details')));
         await tester.pumpAndSettle();
         final sheet = find.byType(BottomSheet);
         expect(
@@ -166,8 +186,8 @@ void main() {
       expect(find.text('Over budget'), findsOneWidget);
       expect(find.text(r'$20 over'), findsOneWidget);
       expect(find.textContaining('uncertain'), findsNothing);
-      expect(find.text(r'Can spend: $0 / day'), findsOneWidget);
-      await tester.tap(find.text('Budget details'));
+      expect(find.byKey(const ValueKey('daily-allowance-pill')), findsNothing);
+      await tester.tap(find.byKey(const ValueKey('monthly-budget-details')));
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('monthly-budget-coverage')));
       await tester.pumpAndSettle();
@@ -186,7 +206,7 @@ void main() {
         findsOneWidget,
       );
       expect(find.byKey(const ValueKey('daily-allowance-pill')), findsNothing);
-      await tester.tap(find.text('Budget details'));
+      await tester.tap(find.byKey(const ValueKey('monthly-budget-details')));
       await tester.pumpAndSettle();
       expect(find.text('Budget details — October 2026'), findsOneWidget);
       expect(find.text(r'$4,349.35'), findsOneWidget);
@@ -199,14 +219,14 @@ void main() {
     await show(tester, budget: null, edit: () => edited = true);
     expect(find.text('No budget set'), findsOneWidget);
     expect(find.byType(LinearProgressIndicator), findsNothing);
-    await tester.tap(find.text('Budget details'));
+    await tester.tap(find.byKey(const ValueKey('monthly-budget-details')));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Set budget'));
     await tester.pumpAndSettle();
     expect(edited, isTrue);
     await show(tester, total: 0, regular: 0, unexpected: 0, budget: 0);
     expect(find.text('Exactly on budget'), findsOneWidget);
-    expect(find.text(r'Can spend: $0 / day'), findsOneWidget);
+    expect(find.byKey(const ValueKey('daily-allowance-pill')), findsNothing);
     expect(tester.takeException(), isNull);
   });
   testWidgets(

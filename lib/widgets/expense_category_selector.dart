@@ -25,15 +25,18 @@ class ExpenseCategorySelector extends StatelessWidget {
     required this.onCategorySelected,
     this.categories = const [],
     this.transactions = const [],
+    this.onManageCategories,
   });
   final String selectedCategory;
   final ValueChanged<String> onCategorySelected;
   final List<ExpenseCategory> categories;
   final List<Transaction> transactions;
+  final Future<List<ExpenseCategory>> Function()? onManageCategories;
 
   List<ExpenseCategory> get _options {
-    if (categories.isNotEmpty)
+    if (categories.isNotEmpty) {
       return categories.where((c) => c.active && !c.archived).toList();
+    }
     return [
       for (final entry in defaultExpenseParents.entries)
         ExpenseCategory(id: entry.key, parentId: entry.key, name: entry.value),
@@ -51,8 +54,9 @@ class ExpenseCategorySelector extends StatelessWidget {
       final match = options
           .where((c) => c.name == tx.category || c.id == tx.categoryId)
           .firstOrNull;
-      if (match != null && !recent.any((c) => c.id == match.id))
+      if (match != null && !recent.any((c) => c.id == match.id)) {
         recent.add(match);
+      }
       if (recent.length == 5) break;
     }
     final counts = <String, int>{};
@@ -82,6 +86,7 @@ class ExpenseCategorySelector extends StatelessWidget {
         recent: recent,
         frequent: frequent,
         all: alphabetic,
+        onManageCategories: onManageCategories,
       ),
     );
     if (selected != null) onCategorySelected(selected.name);
@@ -132,17 +137,52 @@ class _CategoryPickerSheet extends StatefulWidget {
     required this.recent,
     required this.frequent,
     required this.all,
+    this.onManageCategories,
   });
   final String? selectedId;
   final List<ExpenseCategory> recent;
   final List<ExpenseCategory> frequent;
   final List<ExpenseCategory> all;
+  final Future<List<ExpenseCategory>> Function()? onManageCategories;
   @override
   State<_CategoryPickerSheet> createState() => _CategoryPickerSheetState();
 }
 
 class _CategoryPickerSheetState extends State<_CategoryPickerSheet> {
   final _search = TextEditingController();
+  late List<ExpenseCategory> _all = widget.all;
+  bool _updating = false;
+
+  Future<void> _manageCategories() async {
+    setState(() => _updating = true);
+    try {
+      final categories = await widget.onManageCategories!();
+      if (!mounted) return;
+      setState(() {
+        _all = categories.where((c) => c.active && !c.archived).toList()
+          ..sort(
+            (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
+          );
+        _search.clear();
+      });
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Could not update categories. Please try again.'),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _updating = false);
+    }
+  }
+
+  List<ExpenseCategory> _refreshGroup(List<ExpenseCategory> group) => [
+    for (final old in group)
+      for (final category in _all)
+        if (old.id == category.id) category,
+  ];
   @override
   void dispose() {
     _search.dispose();
@@ -152,7 +192,7 @@ class _CategoryPickerSheetState extends State<_CategoryPickerSheet> {
   @override
   Widget build(BuildContext context) {
     final query = _search.text.trim().toLowerCase();
-    final matches = widget.all
+    final matches = _all
         .where(
           (c) =>
               c.name.toLowerCase().contains(query) ||
@@ -168,7 +208,10 @@ class _CategoryPickerSheetState extends State<_CategoryPickerSheet> {
           16 + MediaQuery.viewInsetsOf(context).bottom,
         ),
         child: SizedBox(
-          height: MediaQuery.sizeOf(context).height * .75,
+          height:
+              (MediaQuery.sizeOf(context).height -
+                  MediaQuery.viewInsetsOf(context).bottom) *
+              .75,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -197,21 +240,38 @@ class _CategoryPickerSheetState extends State<_CategoryPickerSheet> {
                 ),
               ),
               const SizedBox(height: 8),
+              if (widget.onManageCategories != null)
+                TextButton.icon(
+                  key: const ValueKey('add-category-from-picker'),
+                  onPressed: _updating ? null : _manageCategories,
+                  icon: _updating
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.add),
+                  label: Text(
+                    _updating ? 'Updating categories…' : 'Add a new category',
+                  ),
+                ),
               Expanded(
                 child: query.isNotEmpty
                     ? _categoryList(matches)
                     : ListView(
                         children: [
-                          if (widget.recent.isNotEmpty) ...[
+                          if (_refreshGroup(widget.recent).isNotEmpty) ...[
                             _heading('Recently used'),
-                            ..._categoryTiles(widget.recent),
+                            ..._categoryTiles(_refreshGroup(widget.recent)),
                           ],
-                          if (widget.frequent.isNotEmpty) ...[
+                          if (_refreshGroup(widget.frequent).isNotEmpty) ...[
                             _heading('Frequently used'),
-                            ..._categoryTiles(widget.frequent.take(5).toList()),
+                            ..._categoryTiles(
+                              _refreshGroup(widget.frequent).take(5).toList(),
+                            ),
                           ],
                           _heading('All categories'),
-                          ..._categoryTiles(widget.all),
+                          ..._categoryTiles(_all),
                         ],
                       ),
               ),

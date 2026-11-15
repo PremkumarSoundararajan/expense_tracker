@@ -2,6 +2,47 @@ import 'package:flutter/material.dart';
 
 import '../models/expense_category.dart';
 
+class _CategoryNameDialog extends StatefulWidget {
+  const _CategoryNameDialog({this.initial});
+  final String? initial;
+
+  @override
+  State<_CategoryNameDialog> createState() => _CategoryNameDialogState();
+}
+
+class _CategoryNameDialogState extends State<_CategoryNameDialog> {
+  late final _controller = TextEditingController(text: widget.initial);
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    title: Text(
+      widget.initial == null ? 'Add subcategory' : 'Rename subcategory',
+    ),
+    content: TextField(
+      controller: _controller,
+      autofocus: true,
+      maxLength: 40,
+      decoration: const InputDecoration(labelText: 'Name'),
+    ),
+    actions: [
+      TextButton(
+        onPressed: () => Navigator.pop(context),
+        child: const Text('Cancel'),
+      ),
+      FilledButton(
+        onPressed: () => Navigator.pop(context, _controller.text.trim()),
+        child: const Text('Save'),
+      ),
+    ],
+  );
+}
+
 class ExpenseCategoryManagementScreen extends StatefulWidget {
   const ExpenseCategoryManagementScreen({
     super.key,
@@ -80,29 +121,10 @@ class _ExpenseCategoryManagementScreenState
   }
 
   Future<String?> _askName({String? initial}) async {
-    final controller = TextEditingController(text: initial);
     return showDialog<String>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Text(initial == null ? 'Add subcategory' : 'Rename subcategory'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          maxLength: 40,
-          decoration: const InputDecoration(labelText: 'Name'),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, controller.text.trim()),
-            child: const Text('Save'),
-          ),
-        ],
-      ),
-    ).whenComplete(controller.dispose);
+      builder: (_) => _CategoryNameDialog(initial: initial),
+    );
   }
 
   Future<void> _add(String parentId) async {

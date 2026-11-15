@@ -4,85 +4,87 @@ import 'package:pocket_ledger/models/transaction.dart';
 import 'package:pocket_ledger/services/monthly_rollover_service.dart';
 
 void main() {
-  group('MonthlyBudgetSnapshotStore', () {
+  group('MonthlyBudgetSnapshotStore shared monthly budget', () {
+    test('editing from a past month updates every comparison and removes old overrides', () async {
+      SharedPreferences.setMockInitialValues({
+        'monthly_target': 1000.0,
+        'budget_snapshot_2026_10': 1000.0,
+        'budget_snapshot_2026_09': 5000.0,
+      });
+      final store = MonthlyBudgetSnapshotStore();
+      await store.saveMonthBudget(
+        month: DateTime(2026, 9),
+        budget: 5000,
+        now: DateTime(2026, 11, 15),
+      );
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.getDouble('monthly_target'), 5000);
+      expect(
+        prefs.getKeys().where((key) => key.startsWith('budget_snapshot_')),
+        isEmpty,
+      );
+      for (final month in [
+        DateTime(2026, 11),
+        DateTime(2026, 10),
+        DateTime(2026, 9),
+        DateTime(2020, 1),
+      ]) {
+        expect(await store.budgetForMonth(month), 5000);
+      }
+      await store.saveCurrentMonthBudget(
+        budget: 7000,
+        now: DateTime(2026, 11, 15),
+      );
+      for (final month in [
+        DateTime(2026, 11),
+        DateTime(2026, 10),
+        DateTime(2026, 9),
+      ]) {
+        expect(await store.budgetForMonth(month), 7000);
+      }
+    });
+
+    test('startup and restart use the active budget instead of stale month snapshots', () async {
+      SharedPreferences.setMockInitialValues({
+        'monthly_target': 5000.0,
+        'budget_snapshot_2026_10': 1000.0,
+      });
+      final store = MonthlyBudgetSnapshotStore();
+      expect(
+        await store.initialize(currentBudget: 5000, now: DateTime(2026, 11)),
+        5000,
+      );
+      expect(await store.budgetForMonth(DateTime(2026, 10)), 5000);
+      await store.saveBudget(budget: 6000);
+      final reloaded = MonthlyBudgetSnapshotStore();
+      expect(
+        await reloaded.initialize(currentBudget: 5000, now: DateTime(2026, 12)),
+        6000,
+      );
+      expect(await reloaded.budgetForMonth(DateTime(2026, 9)), 6000);
+      expect((await SharedPreferences.getInstance()).getKeys(), {
+        'monthly_target',
+      });
+    });
+
     test(
-      'editing a past month preserves the active and other historical budgets',
+      'old snapshots alone do not resurrect a budget; zero is valid',
       () async {
         SharedPreferences.setMockInitialValues({
-          'monthly_target': 6000.0,
-          'budget_snapshot_2026_10': 5000.0,
+          'budget_snapshot_2026_10': 1000.0,
         });
         final store = MonthlyBudgetSnapshotStore();
-        await store.saveMonthBudget(
-          month: DateTime(2026, 9),
-          budget: 4500,
-          now: DateTime(2026, 11, 15),
-        );
-        final prefs = await SharedPreferences.getInstance();
-        expect(prefs.getDouble('monthly_target'), 6000);
-        expect(prefs.getDouble('budget_snapshot_2026_10'), 5000);
-        expect(prefs.getDouble('budget_snapshot_2026_09'), 4500);
-        await store.saveMonthBudget(
-          month: DateTime(2026, 11),
-          budget: 7000,
-          now: DateTime(2026, 11, 15),
-        );
-        expect(prefs.getDouble('monthly_target'), 7000);
-        expect(await store.budgetForMonth(DateTime(2026, 9)), 4500);
-      },
-    );
-    test(
-      'keeps the previous month budget when the active budget changes',
-      () async {
-        SharedPreferences.setMockInitialValues({'monthly_target': 5000});
-        final store = MonthlyBudgetSnapshotStore();
-
-        final previousBudget = await store.initialize(
-          currentBudget: 5000,
-          now: DateTime(2025, 11, 1),
-        );
-        await store.saveCurrentMonthBudget(
-          budget: 6000,
-          now: DateTime(2025, 11, 1),
-        );
-
-        final preferences = await SharedPreferences.getInstance();
-        expect(previousBudget, 5000);
-        expect(preferences.getDouble('budget_snapshot_2025_10'), 5000);
-        expect(preferences.getDouble('budget_snapshot_2025_11'), 6000);
-        expect(preferences.getDouble('monthly_target'), 6000);
-
-        final recap = MonthlyRolloverRecap.calculate(
-          transactions: [
-            Transaction(
-              date: DateTime(2025, 10, 15),
-              amount: 4900,
-              category: 'Housing / Bills',
-              expenseType: ExpenseType.regular,
-            ),
-          ],
-          monthlyBudget: previousBudget,
-          now: DateTime(2025, 11, 1),
-        );
-
-        expect(recap, isNotNull);
-        expect(recap!.difference, 100);
-      },
-    );
-
-    test(
-      'uses the legacy active budget to initialize a missing snapshot',
-      () async {
-        SharedPreferences.setMockInitialValues({'monthly_target': 5000});
-
-        final previousBudget = await MonthlyBudgetSnapshotStore().initialize(
-          currentBudget: 5000,
-          now: DateTime(2025, 11, 1),
-        );
-
-        expect(previousBudget, 5000);
-        final preferences = await SharedPreferences.getInstance();
-        expect(preferences.getDouble('budget_snapshot_2025_10'), 5000);
+        expect(await store.initialize(currentBudget: null), isNull);
+        expect(await store.budgetForMonth(DateTime(2026, 10)), isNull);
+        await store.saveBudget(budget: 0);
+        expect(await store.budgetForMonth(DateTime(2026, 10)), 0);
+        for (final invalid in [-1.0, double.nan, double.infinity]) {
+          await expectLater(
+            store.saveBudget(budget: invalid),
+            throwsArgumentError,
+          );
+        }
+        expect(await store.budgetForMonth(DateTime(2026, 10)), 0);
       },
     );
   });
