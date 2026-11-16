@@ -3,6 +3,7 @@ import 'support/baseline_navigation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:pocket_ledger/app_theme.dart';
 import 'package:pocket_ledger/models/expense_category.dart';
 import 'package:pocket_ledger/models/transaction.dart';
 import 'package:pocket_ledger/services/merchant_classification_store.dart';
@@ -36,6 +37,8 @@ void main() {
         ];
         await tester.pumpWidget(
           MaterialApp(
+            theme: AppTheme.light,
+            darkTheme: AppTheme.dark,
             home: Scaffold(
               body: SingleChildScrollView(
                 child: MerchantBaselinePanel(

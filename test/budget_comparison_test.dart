@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pocket_ledger/app_theme.dart';
 import 'package:pocket_ledger/models/transaction.dart';
 import 'package:pocket_ledger/services/budget_comparison.dart';
 import 'package:pocket_ledger/services/merchant_classification_service.dart';
@@ -64,6 +65,7 @@ void main() {
       ];
       await tester.pumpWidget(
         MaterialApp(
+          theme: AppTheme.light,
           home: Scaffold(
             body: MerchantBaselinePanel(
               transactions: rows,
@@ -241,6 +243,7 @@ void main() {
       addTearDown(tester.view.resetDevicePixelRatio);
       await tester.pumpWidget(
         MaterialApp(
+          theme: AppTheme.light,
           home: Scaffold(
             body: SingleChildScrollView(
               child: MonthlyBudgetCard(

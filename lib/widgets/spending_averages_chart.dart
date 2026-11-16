@@ -10,6 +10,7 @@ class SpendingAveragesChart extends StatelessWidget {
     required this.regularAverage,
     required this.currencySymbol,
     this.series = SpendSeries.regular,
+    this.averageLegendLabel,
   });
 
   final List<SpendPeriodPoint> points;
@@ -20,6 +21,7 @@ class SpendingAveragesChart extends StatelessWidget {
   /// Which series is drawn. Only the active series (bars + average line)
   /// is rendered.
   final SpendSeries series;
+  final String? averageLegendLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -32,8 +34,9 @@ class SpendingAveragesChart extends StatelessWidget {
     }
 
     final isRegular = series == SpendSeries.regular;
-    final seriesColor = isRegular ? colorScheme.tertiary : colorScheme.primary;
-    final seriesLabel = isRegular ? 'Regular' : 'Actual';
+    final seriesColor = colorScheme.primary;
+    final averageColor = colorScheme.onSurfaceVariant;
+    final seriesLabel = isRegular ? 'Regular spending' : 'Actual spending';
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -47,10 +50,10 @@ class SpendingAveragesChart extends StatelessWidget {
               series: series,
               average: isRegular ? regularAverage : actualAverage,
               color: seriesColor,
+              averageColor: averageColor,
               gridColor: colorScheme.outlineVariant,
-              labelStyle: Theme.of(context).textTheme.labelSmall?.copyWith(
-                color: colorScheme.onSurfaceVariant,
-              ),
+              labelStyle: Theme.of(context).textTheme.labelSmall
+                  ?.copyWith(color: colorScheme.onSurfaceVariant),
               currencySymbol: currencySymbol,
             ),
           ),
@@ -61,7 +64,12 @@ class SpendingAveragesChart extends StatelessWidget {
           runSpacing: 4,
           children: [
             _LegendSwatch(color: seriesColor, label: seriesLabel),
-            _LegendLine(color: seriesColor, label: '$seriesLabel avg'),
+            _LegendLine(
+              color: averageColor,
+              label:
+                  averageLegendLabel ??
+                  '${isRegular ? 'Regular' : 'Actual'} average',
+            ),
           ],
         ),
       ],
@@ -89,7 +97,14 @@ class _LegendSwatch extends StatelessWidget {
           ),
         ),
         const SizedBox(width: 6),
-        Text(label, style: Theme.of(context).textTheme.labelSmall),
+        Flexible(
+          child: Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: Theme.of(context).textTheme.labelSmall,
+          ),
+        ),
       ],
     );
   }
@@ -111,7 +126,14 @@ class _LegendLine extends StatelessWidget {
           painter: _DashedLinePainter(color: color),
         ),
         const SizedBox(width: 6),
-        Text(label, style: Theme.of(context).textTheme.labelSmall),
+        Flexible(
+          child: Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: Theme.of(context).textTheme.labelSmall,
+          ),
+        ),
       ],
     );
   }
@@ -162,6 +184,7 @@ class _AveragesChartPainter extends CustomPainter {
     required this.series,
     required this.average,
     required this.color,
+    required this.averageColor,
     required this.gridColor,
     required this.labelStyle,
     required this.currencySymbol,
@@ -171,6 +194,7 @@ class _AveragesChartPainter extends CustomPainter {
   final SpendSeries series;
   final double average;
   final Color color;
+  final Color averageColor;
   final Color gridColor;
   final TextStyle? labelStyle;
   final String currencySymbol;
@@ -194,12 +218,12 @@ class _AveragesChartPainter extends CustomPainter {
     final gridPaint = Paint()
       ..color = gridColor
       ..strokeWidth = 1;
-    for (var i = 0; i <= 2; i++) {
-      final y = top + chartHeight * (i / 2);
+    for (var i = 0; i <= 3; i++) {
+      final y = top + chartHeight * (i / 3);
       canvas.drawLine(Offset(left, y), Offset(size.width, y), gridPaint);
 
       // Right-aligned y-axis label sitting just left of the plot area.
-      final value = maxValue * (1 - i / 2);
+      final value = maxValue * (1 - i / 3);
       final axisLabel = TextPainter(
         text: TextSpan(
           text: formatChartAxisValue(value, currencySymbol),
@@ -217,7 +241,7 @@ class _AveragesChartPainter extends CustomPainter {
     if (average > 0) {
       final y = top + chartHeight * (1 - (average / maxValue).clamp(0.0, 1.0));
       final paint = Paint()
-        ..color = color
+        ..color = averageColor
         ..strokeWidth = 1.6;
       const dash = 5.0;
       var x = left;
@@ -227,9 +251,10 @@ class _AveragesChartPainter extends CustomPainter {
       }
     }
 
-    final barPaint = Paint()..color = color;
     for (var index = 0; index < points.length; index++) {
       final point = points[index];
+      final barPaint = Paint()
+        ..color = color.withValues(alpha: point.isCurrent ? 1 : 0.6);
       final groupLeft = left + groupWidth * index;
       final barWidth = (groupWidth * 0.5).clamp(10.0, 32.0).toDouble();
       final barLeft = groupLeft + (groupWidth - barWidth) / 2;
@@ -238,9 +263,15 @@ class _AveragesChartPainter extends CustomPainter {
           chartHeight * (point.valueFor(series) / maxValue).clamp(0.0, 1.0);
       if (height > 0) {
         canvas.drawRRect(
-          RRect.fromRectAndRadius(
-            Rect.fromLTWH(barLeft, top + chartHeight - height, barWidth, height),
-            const Radius.circular(4),
+          RRect.fromRectAndCorners(
+            Rect.fromLTWH(
+              barLeft,
+              top + chartHeight - height,
+              barWidth,
+              height,
+            ),
+            topLeft: const Radius.circular(5),
+            topRight: const Radius.circular(5),
           ),
           barPaint,
         );
@@ -267,6 +298,7 @@ class _AveragesChartPainter extends CustomPainter {
         oldDelegate.series != series ||
         oldDelegate.average != average ||
         oldDelegate.color != color ||
+        oldDelegate.averageColor != averageColor ||
         oldDelegate.gridColor != gridColor ||
         oldDelegate.labelStyle != labelStyle ||
         oldDelegate.currencySymbol != currencySymbol;

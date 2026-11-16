@@ -71,33 +71,31 @@ class DailyAllowanceDialog extends StatelessWidget {
           ),
           row('Days left (including today)', '$days'),
           const SizedBox(height: 12),
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: theme.colorScheme.surfaceContainerLow,
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  '${money(budget)} − ${money(spending.budgetRelevant)} = ${money(remaining)}',
-                ),
-                if (remaining < 0) ...[
-                  const SizedBox(height: 6),
-                  const Text('No budget remains, so the allowance is zero.'),
-                ],
-                const SizedBox(height: 8),
-                const Text('Remaining budget ÷ days left'),
-                const SizedBox(height: 4),
-                Text(
-                  '${money(available)} ÷ $days ≈ ${money(daily)}/day',
-                  key: const ValueKey('daily-allowance-math'),
-                  style: theme.textTheme.titleSmall?.copyWith(
-                    color: theme.colorScheme.primary,
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '${money(budget)} − ${money(spending.budgetRelevant)} = ${money(remaining)}',
                   ),
-                ),
-              ],
+                  if (remaining < 0) ...[
+                    const SizedBox(height: 6),
+                    const Text('No budget remains, so the allowance is zero.'),
+                  ],
+                  const SizedBox(height: 8),
+                  const Text('Remaining budget ÷ days left'),
+                  const SizedBox(height: 4),
+                  Text(
+                    '${money(available)} ÷ $days ≈ ${money(daily)}/day',
+                    key: const ValueKey('daily-allowance-math'),
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      color: theme.colorScheme.primary,
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
           const SizedBox(height: 12),

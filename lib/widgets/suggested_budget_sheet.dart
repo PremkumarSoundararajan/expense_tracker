@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 
+import '../app_theme.dart';
 import '../services/suggested_budget_service.dart';
 import '../utils/currency_format.dart';
+import 'accent_icon_chip.dart';
 
 Future<double?> showSuggestedBudgetSheet({
   required BuildContext context,
@@ -63,6 +65,11 @@ class SuggestedBudgetBreakdown extends StatelessWidget {
           children: [
             Row(
               children: [
+                AccentIconChip(
+                  icon: Icons.calculate_outlined,
+                  accent: context.accentColors.amber,
+                ),
+                const SizedBox(width: 12),
                 Expanded(
                   child: Text(
                     'Suggested monthly budget',

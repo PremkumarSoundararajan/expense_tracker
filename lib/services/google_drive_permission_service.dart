@@ -131,7 +131,9 @@ class _DrivePermissionDialogState extends State<_DrivePermissionDialog> {
             const SizedBox(height: 12),
             Text(
               _errorMessage!,
-              style: TextStyle(color: Theme.of(context).colorScheme.error),
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
             ),
           ],
         ],

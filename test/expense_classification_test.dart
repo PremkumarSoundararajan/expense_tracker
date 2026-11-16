@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:pocket_ledger/app_theme.dart';
 import 'package:pocket_ledger/models/transaction.dart';
 import 'package:pocket_ledger/services/local_transaction_store.dart';
 import 'package:pocket_ledger/services/monthly_rollover_service.dart';
@@ -296,6 +297,7 @@ void main() {
     (tester) async {
       await tester.pumpWidget(
         MaterialApp(
+          theme: AppTheme.light,
           home: Scaffold(
             body: SingleChildScrollView(
               child: MonthlyBudgetCard(
@@ -315,7 +317,10 @@ void main() {
       );
 
       expect(find.text(r'$14,000'), findsOneWidget);
-      expect(find.textContaining('counted toward budget'), findsNothing);
+      expect(
+        find.textContaining(r'Progress uses $12,500 counted toward budget'),
+        findsOneWidget,
+      );
       expect(find.text('Over budget'), findsOneWidget);
       expect(find.text(r'$6,500 over'), findsOneWidget);
       await tester.tap(find.byKey(const ValueKey('monthly-budget-details')));

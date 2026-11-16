@@ -33,6 +33,8 @@ void main() {
     expect(find.text('Merchant F'), findsOneWidget);
     expect(find.text('Merchant B'), findsOneWidget);
     expect(find.text('Merchant A'), findsNothing);
+    expect(find.text('3 completed months available'), findsOneWidget);
+    expect(find.text('\$60 total  ·  \$20 avg/mo'), findsOneWidget);
   });
 
   testWidgets('opens a spot detail with the original transaction and returns', (

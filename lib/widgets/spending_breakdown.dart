@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../services/classified_spending_breakdown_service.dart';
 import '../utils/currency_format.dart';
+import 'app_linear_progress_indicator.dart';
 
 enum _Dimension { essentiality, category }
 
@@ -25,24 +26,16 @@ class _SpendingBreakdownState extends State<SpendingBreakdown> {
   _Dimension _dimension = _Dimension.essentiality;
   String money(double amount) =>
       formatFullCurrency(amount, widget.currencySymbol);
-  // Stable text hash keeps category colors stable across sorting and updates.
   Color color(String name) {
-    if (name == 'Essential') return const Color(0xFF288B70);
-    if (name == 'Potentially Flexible') return const Color(0xFFE58B29);
-    const palette = [
-      Color(0xFF4A9ED3),
-      Color(0xFFB48CDD),
-      Color(0xFFE58B29),
-      Color(0xFF288B70),
-      Color(0xFFDE7994),
-      Color(0xFF9BA647),
-      Color(0xFF45ADAD),
-    ];
     final hash = name.codeUnits.fold<int>(
       0,
       (sum, unit) => (sum * 31 + unit) & 0x7fffffff,
     );
-    return palette[hash % palette.length];
+    const tints = [0.62, 0.74, 0.86, 1.0];
+    return Theme.of(context)
+        .colorScheme
+        .primary
+        .withValues(alpha: tints[hash % tints.length]);
   }
 
   Widget label(
@@ -74,7 +67,7 @@ class _SpendingBreakdownState extends State<SpendingBreakdown> {
         if (bar)
           Padding(
             padding: const EdgeInsets.only(top: 4, left: 18),
-            child: LinearProgressIndicator(
+            child: AppLinearProgressIndicator(
               value: data.classifiedTotal <= 0
                   ? 0
                   : (item.amount.abs() /
@@ -84,10 +77,6 @@ class _SpendingBreakdownState extends State<SpendingBreakdown> {
                             ))
                         .clamp(0, 1),
               color: color(item.name),
-              minHeight: 7,
-              backgroundColor: Theme.of(context)
-                  .colorScheme
-                  .surfaceContainerHighest,
             ),
           ),
       ],

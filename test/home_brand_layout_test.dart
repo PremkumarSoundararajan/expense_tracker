@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import 'package:pocket_ledger/app_theme.dart';
 import 'package:pocket_ledger/main.dart';
 import 'package:pocket_ledger/models/transaction.dart';
 import 'package:pocket_ledger/services/local_transaction_store.dart';
@@ -37,6 +38,7 @@ void main() {
             ]);
         await tester.pumpWidget(
           MaterialApp(
+            theme: AppTheme.light,
             home: DashboardScreen(
               account: _Account(),
               isDarkMode: width == 390,
@@ -73,6 +75,7 @@ void main() {
           tester.getRect(group).bottom + 20,
           lessThanOrEqualTo(tester.getRect(find.text('Add New Expense')).top),
         );
+        expect(tester.getSize(group).height, lessThan(360));
         expect(tester.takeException(), isNull);
         await tester.pumpWidget(const SizedBox.shrink());
         await tester.pumpAndSettle();

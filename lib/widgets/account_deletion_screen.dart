@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'app_linear_progress_indicator.dart';
+
 class AccountDeletionScreen extends StatefulWidget {
   const AccountDeletionScreen({
     super.key,
@@ -149,7 +151,7 @@ class _AccountDeletionScreenState extends State<AccountDeletionScreen> {
                   ),
                   const SizedBox(height: 20),
                   if (_busy) ...[
-                    const LinearProgressIndicator(),
+                    const AppLinearProgressIndicator(),
                     const SizedBox(height: 12),
                     Semantics(liveRegion: true, child: Text(_progress)),
                     const SizedBox(height: 8),

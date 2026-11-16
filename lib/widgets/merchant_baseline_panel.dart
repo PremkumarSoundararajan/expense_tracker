@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../app_theme.dart';
 import '../models/expense_category.dart';
 import '../models/financial_baseline.dart';
 import '../models/transaction.dart';
@@ -11,6 +12,7 @@ import '../services/merchant_classification_service.dart';
 import '../services/merchant_classification_store.dart';
 import '../services/merchant_na_service.dart';
 import '../utils/currency_format.dart';
+import 'app_linear_progress_indicator.dart';
 import 'pocket_ledger_web_access.dart';
 import 'spending_breakdown.dart';
 import '../services/classified_spending_breakdown_service.dart';
@@ -119,51 +121,63 @@ class _MerchantBaselinePanelState extends State<MerchantBaselinePanel> {
     final selected = view == 'remaining'
         ? ['remaining', 'unknown', 'focus'].contains(_view)
         : _view == view;
-    final colors = Theme.of(context).colorScheme;
+    final semanticColors = context.semanticColors;
+    final accent = view == 'remaining'
+        ? context.accentColors.amber
+        : context.accentColors.green;
+    final containerColor = view == 'remaining'
+        ? semanticColors.warningContainer
+        : semanticColors.successContainer;
+    final contentColor = view == 'remaining'
+        ? semanticColors.onWarningContainer
+        : semanticColors.onSuccessContainer;
     return Expanded(
       child: Semantics(
         selected: selected,
-        child: OutlinedButton(
-          key: ValueKey(
-            'baseline-' + (view == 'remaining' ? 'unclassified' : 'classified'),
+        child: Material(
+          color: containerColor,
+          elevation: selected ? 3 : 1,
+          shadowColor: Theme.of(context).colorScheme.shadow.withValues(
+            alpha: Theme.of(context).brightness == Brightness.light
+                ? 0.12
+                : 0.2,
           ),
-          onPressed: () => setState(() {
-            if (_view != view) _query = '';
-            _view = view;
-            if (view == 'classified') _classifiedTable = false;
-            _reviewCoverage = false;
-            if (view == 'remaining') _selection = 'All';
-          }),
-          style: OutlinedButton.styleFrom(
-            backgroundColor: selected
-                ? colors.primaryContainer
-                : colors.surface,
-            side: BorderSide(
-              color: selected ? colors.primary : colors.outlineVariant,
-              width: selected ? 2 : 1,
+          borderRadius: BorderRadius.circular(12),
+          child: InkWell(
+            key: ValueKey(
+              'baseline-' +
+                  (view == 'remaining' ? 'unclassified' : 'classified'),
             ),
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
+            onTap: () => setState(() {
+              if (_view != view) _query = '';
+              _view = view;
+              if (view == 'classified') _classifiedTable = false;
+              _reviewCoverage = false;
+              if (view == 'remaining') _selection = 'All';
+            }),
+            borderRadius: BorderRadius.circular(12),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(icon, size: 22, color: accent.icon),
+                  const SizedBox(height: 4),
+                  Text(
+                    label + ' (' + count.toString() + ')',
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: contentColor,
+                    ),
+                  ),
+                  Text(
+                    percent.toStringAsFixed(1) + '% of spending',
+                    style: TextStyle(fontSize: 12, color: contentColor),
+                  ),
+                ],
+              ),
             ),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(icon, size: 22),
-              const SizedBox(height: 4),
-              Text(
-                label + ' (' + count.toString() + ')',
-                style: const TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              Text(
-                percent.toStringAsFixed(1) + '% of spending',
-                style: const TextStyle(fontSize: 12),
-              ),
-            ],
           ),
         ),
       ),
@@ -547,7 +561,7 @@ class _MerchantBaselinePanelState extends State<MerchantBaselinePanel> {
             Text(
               _naError!,
               style: TextStyle(
-                color: Theme.of(context).colorScheme.error,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
                 fontSize: 12,
               ),
             ),
@@ -968,77 +982,77 @@ class _MerchantBaselinePanelState extends State<MerchantBaselinePanel> {
   Widget _mobileMerchant(FavouriteSpendingSpot group, double total) {
     final isNa = _rule(group)?['na'] == true;
     final opened = _expanded.contains(group.key);
-    return Container(
+    return Card(
       key: ValueKey('mobile-merchant-${group.key}'),
       margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              IconButton(
-                key: ValueKey('merchant-expand-${group.key}'),
-                tooltip: 'View transactions',
-                onPressed: () => setState(() {
-                  opened
-                      ? _expanded.remove(group.key)
-                      : _expanded.add(group.key);
-                }),
-                icon: Icon(opened ? Icons.expand_less : Icons.expand_more),
-              ),
-              Expanded(
-                child: Text(
-                  '${group.name} · ${group.transactionCount}',
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontWeight: FontWeight.w600),
+      child: Padding(
+        padding: const EdgeInsets.all(10),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                IconButton(
+                  key: ValueKey('merchant-expand-${group.key}'),
+                  tooltip: 'View transactions',
+                  onPressed: () => setState(() {
+                    opened
+                        ? _expanded.remove(group.key)
+                        : _expanded.add(group.key);
+                  }),
+                  icon: Icon(opened ? Icons.expand_less : Icons.expand_more),
                 ),
-              ),
-              _merchantActions(group, isNa),
-            ],
-          ),
-          Text(
-            '${money(group.total)} · ${total <= 0 ? '0.0' : (group.total / total * 100).toStringAsFixed(1)}% of spending',
-            style: Theme.of(context).textTheme.bodySmall,
-          ),
-          if (!_classifiedKeys.contains(group.key) && _complete(group, _index))
-            const Text('Ready to save', style: TextStyle(fontSize: 11)),
-          _mobileField(
-            'Category',
-            isNa
-                ? const Text('NA')
-                : _categorySelector(
-                    'merchant-category-${group.key}',
-                    _category(group),
-                    (v) => setState(() => _setMerchant(group, categoryId: v)),
+                Expanded(
+                  child: Text(
+                    '${group.name} · ${group.transactionCount}',
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontWeight: FontWeight.w600),
                   ),
-          ),
-          _mobileField(
-            'Essentiality',
-            isNa
-                ? const Text('NA')
-                : _groupSelector(
-                    'merchant-group-${group.key}',
-                    _group(group),
-                    (v) => setState(() => _setMerchant(group, lifestyle: v)),
-                  ),
-          ),
-          _mobileField(
-            'Expense Type',
-            isNa
-                ? const Text('NA')
-                : _typeSelector(
-                    'merchant-type-${group.key}',
-                    _type(group),
-                    (v) => setState(() => _setMerchant(group, expenseType: v)),
-                  ),
-          ),
-        ],
+                ),
+                _merchantActions(group, isNa),
+              ],
+            ),
+            Text(
+              '${money(group.total)} · ${total <= 0 ? '0.0' : (group.total / total * 100).toStringAsFixed(1)}% of spending',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            if (!_classifiedKeys.contains(group.key) &&
+                _complete(group, _index))
+              const Text('Ready to save', style: TextStyle(fontSize: 11)),
+            _mobileField(
+              'Category',
+              isNa
+                  ? const Text('NA')
+                  : _categorySelector(
+                      'merchant-category-${group.key}',
+                      _category(group),
+                      (v) => setState(() => _setMerchant(group, categoryId: v)),
+                    ),
+            ),
+            _mobileField(
+              'Essentiality',
+              isNa
+                  ? const Text('NA')
+                  : _groupSelector(
+                      'merchant-group-${group.key}',
+                      _group(group),
+                      (v) => setState(() => _setMerchant(group, lifestyle: v)),
+                    ),
+            ),
+            _mobileField(
+              'Expense Type',
+              isNa
+                  ? const Text('NA')
+                  : _typeSelector(
+                      'merchant-type-${group.key}',
+                      _type(group),
+                      (v) =>
+                          setState(() => _setMerchant(group, expenseType: v)),
+                    ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -1048,64 +1062,62 @@ class _MerchantBaselinePanelState extends State<MerchantBaselinePanel> {
     final active = override?['deleted'] == true ? null : override;
     final effective = _index.apply(t);
     final isNa = _index.merchantFor(t.description)?['na'] == true;
-    return Container(
+    return Card(
       key: ValueKey('merchant-transaction-${t.id}'),
       margin: const EdgeInsets.only(left: 12, bottom: 12),
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceContainerLow,
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            '${t.dateOnlyIsoString} · ${money(t.amount)}',
-            style: Theme.of(context).textTheme.bodySmall,
-          ),
-          Text(
-            '${active == null ? '' : 'Exception · '}${t.description}',
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-          ),
-          if (t.id == null)
-            const Text('Sync once to edit')
-          else ...[
-            _mobileField(
-              'Category',
-              isNa && active?['category'] == null
-                  ? const Text('NA')
-                  : _categorySelector(
-                      'transaction-category-${t.id}',
-                      effective.categoryId,
-                      (v) => setState(() => _setException(t, categoryId: v)),
-                      inherit: true,
-                    ),
+      child: Padding(
+        padding: const EdgeInsets.all(10),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              '${t.dateOnlyIsoString} · ${money(t.amount)}',
+              style: Theme.of(context).textTheme.bodySmall,
             ),
-            _mobileField(
-              'Essentiality',
-              isNa && active?['group'] == null
-                  ? const Text('NA')
-                  : _groupSelector(
-                      'transaction-group-${t.id}',
-                      effective.baselineGroup ?? _legacy[t] ?? 'Unclassified',
-                      (v) => setState(() => _setException(t, lifestyle: v)),
-                      inherit: true,
-                    ),
+            Text(
+              '${active == null ? '' : 'Exception · '}${t.description}',
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
             ),
-            _mobileField(
-              'Expense Type',
-              isNa && active?['expenseType'] == null
-                  ? const Text('NA')
-                  : _typeSelector(
-                      'transaction-type-${t.id}',
-                      effective.expenseType.sheetValue,
-                      (v) => setState(() => _setException(t, expenseType: v)),
-                      inherit: true,
-                    ),
-            ),
+            if (t.id == null)
+              const Text('Sync once to edit')
+            else ...[
+              _mobileField(
+                'Category',
+                isNa && active?['category'] == null
+                    ? const Text('NA')
+                    : _categorySelector(
+                        'transaction-category-${t.id}',
+                        effective.categoryId,
+                        (v) => setState(() => _setException(t, categoryId: v)),
+                        inherit: true,
+                      ),
+              ),
+              _mobileField(
+                'Essentiality',
+                isNa && active?['group'] == null
+                    ? const Text('NA')
+                    : _groupSelector(
+                        'transaction-group-${t.id}',
+                        effective.baselineGroup ?? _legacy[t] ?? 'Unclassified',
+                        (v) => setState(() => _setException(t, lifestyle: v)),
+                        inherit: true,
+                      ),
+              ),
+              _mobileField(
+                'Expense Type',
+                isNa && active?['expenseType'] == null
+                    ? const Text('NA')
+                    : _typeSelector(
+                        'transaction-type-${t.id}',
+                        effective.expenseType.sheetValue,
+                        (v) => setState(() => _setException(t, expenseType: v)),
+                        inherit: true,
+                      ),
+              ),
+            ],
           ],
-        ],
+        ),
       ),
     );
   }
@@ -1438,8 +1450,12 @@ class _MerchantBaselinePanelState extends State<MerchantBaselinePanel> {
     final classifiedPercent = total == 0
         ? 0.0
         : (reviewed / total * 100).clamp(0.0, 100.0);
-    final coverageSummary =
-        '${classifiedPercent.toStringAsFixed(1)}% classified · ${(total <= 0 ? 0.0 : remainingAmount / total * 100).toStringAsFixed(1)}% unclassified${naGroups.isEmpty || _view == 'classified' ? '' : ' · ' + (total <= 0 ? 0.0 : naAmount / total * 100).toStringAsFixed(1) + '% NA'}';
+    final coverageSummary = [
+      'Classified ${classifiedPercent.toStringAsFixed(1)}% · ${money(reviewed)}',
+      'Unclassified ${(total <= 0 ? 0.0 : remainingAmount / total * 100).toStringAsFixed(1)}% · ${money(remainingAmount)}',
+      if (naGroups.isNotEmpty)
+        'Excluded ${(total <= 0 ? 0.0 : naAmount / total * 100).toStringAsFixed(1)}% · ${money(naAmount)}',
+    ].join(' · ');
     final showChart = _view == 'classified' && !_classifiedTable;
     final showReview = _view != 'overview' && !showChart;
     final showNaAction = _view == 'remaining' || _view == 'focus';
@@ -1474,9 +1490,7 @@ class _MerchantBaselinePanelState extends State<MerchantBaselinePanel> {
                         ),
                       ),
                       Tooltip(
-                        message:
-                            'Merchant choices apply to all its transactions. Expand a merchant to edit individual transactions.'
-                            '${dates.isEmpty ? '' : '\nSpending history: ${dates.first.toIso8601String().split('T').first} to ${dates.last.toIso8601String().split('T').first}'}',
+                        message: 'Merchant choices apply to all its transactions. Expand a merchant to edit individual transactions.',
                         triggerMode: TooltipTriggerMode.tap,
                         child: const Padding(
                           padding: EdgeInsets.all(8),
@@ -1485,7 +1499,17 @@ class _MerchantBaselinePanelState extends State<MerchantBaselinePanel> {
                       ),
                     ],
                   ),
-                  const SizedBox(height: 16),
+                  if (dates.isNotEmpty) ...[
+                    const SizedBox(height: 2),
+                    Text(
+                      'Available history · ${dates.first.toIso8601String().split('T').first} to ${dates.last.toIso8601String().split('T').first}',
+                      key: const ValueKey('baseline-history-period'),
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 12),
                   if (!widget.historyComplete)
                     const Text('Showing saved history while syncing.'),
                   Row(
@@ -1507,11 +1531,17 @@ class _MerchantBaselinePanelState extends State<MerchantBaselinePanel> {
                       ),
                     ],
                   ),
-                  const SizedBox(height: 20),
-                  LinearProgressIndicator(
+                  const SizedBox(height: 12),
+                  AppLinearProgressIndicator(
                     value: total == 0 ? 0 : (reviewed / total).clamp(0, 1),
                   ),
-                  const SizedBox(height: 20),
+                  const SizedBox(height: 8),
+                  Text(
+                    coverageSummary,
+                    key: const ValueKey('baseline-coverage-summary'),
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                  const SizedBox(height: 12),
                   if (naGroups.isNotEmpty && _view != 'classified')
                     TextButton(
                       key: const ValueKey('review-na'),
@@ -1529,20 +1559,13 @@ class _MerchantBaselinePanelState extends State<MerchantBaselinePanel> {
                       ),
                     ),
                   if (showNaAction)
-                    Container(
+                    Card(
                       key: const ValueKey('bulk-exclusion-box'),
                       margin: const EdgeInsets.only(top: 12, bottom: 24),
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: Theme.of(context)
-                            .colorScheme
-                            .surfaceContainerLow,
-                        border: Border.all(
-                          color: Theme.of(context).colorScheme.outlineVariant,
-                        ),
-                        borderRadius: BorderRadius.circular(12),
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: _naControls(),
                       ),
-                      child: _naControls(),
                     ),
                   if (_view == 'remaining' || _view == 'focus')
                     SingleChildScrollView(
@@ -1754,11 +1777,6 @@ class _MerchantBaselinePanelState extends State<MerchantBaselinePanel> {
                       _status!,
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
-                    ),
-                  if (showReview)
-                    Text(
-                      coverageSummary,
-                      key: const ValueKey('baseline-coverage-summary'),
                     ),
                   if (_changed.isNotEmpty)
                     Text(

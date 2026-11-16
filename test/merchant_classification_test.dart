@@ -5,6 +5,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:pocket_ledger/app_theme.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:googleapis/sheets/v4.dart' as sheets;
@@ -326,6 +327,8 @@ void main() {
       ]);
       await tester.pumpWidget(
         MaterialApp(
+          theme: AppTheme.light,
+          darkTheme: AppTheme.dark,
           home: Scaffold(
             body: MerchantBaselinePanel(
               showRemainingInitially: true,
@@ -395,6 +398,8 @@ void main() {
   ) async {
     final store = MerchantClassificationStore('restore-widget');
     Widget panel(MerchantClassificationStore state) => MaterialApp(
+      theme: AppTheme.light,
+      darkTheme: AppTheme.dark,
       home: Scaffold(
         body: MerchantBaselinePanel(
           showRemainingInitially: true,
@@ -640,6 +645,8 @@ void main() {
         List<Map<String, dynamic>>? saved;
         await tester.pumpWidget(
           MaterialApp(
+            theme: AppTheme.light,
+            darkTheme: AppTheme.dark,
             home: Scaffold(
               body: SizedBox(
                 height: 620,

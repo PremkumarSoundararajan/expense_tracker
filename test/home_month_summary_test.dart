@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:pocket_ledger/main.dart';
+import 'package:pocket_ledger/app_theme.dart';
 import 'package:pocket_ledger/models/transaction.dart';
 import 'package:pocket_ledger/services/local_transaction_store.dart';
 import 'package:pocket_ledger/utils/currency_format.dart';
@@ -59,6 +60,7 @@ void main() {
             .saveCached(ledger);
         await tester.pumpWidget(
           MaterialApp(
+            theme: AppTheme.light,
             home: DashboardScreen(
               account: _Account(),
               isDarkMode: false,
@@ -107,9 +109,9 @@ void main() {
         await tester.tap(find.text('Cancel'));
         await tester.pumpAndSettle();
         expect(preferences.getDouble('monthly_target'), 500);
-        final originalAllowance = tester.widget<Text>(
-          find.textContaining('Safe to spend'),
-        ).data;
+        final originalAllowance = tester
+            .widget<Text>(find.textContaining('Safe to spend'))
+            .data;
         // Editing while viewing history updates the one shared budget.
         await tester.tap(find.byKey(const ValueKey('monthly-budget-details')));
         await tester.pumpAndSettle();
@@ -170,6 +172,7 @@ void main() {
         expect(preferences.getDouble('monthly_target'), 6000);
         expect(find.text('TODAY'), findsOneWidget);
         expect(find.text('THIS YEAR'), findsOneWidget);
+        expect(find.text('Year to date · ${now.year}'), findsOneWidget);
         final expectedYear = ledger
             .where((t) => t.date.year == now.year)
             .fold<double>(0, (sum, t) => sum + t.amount);

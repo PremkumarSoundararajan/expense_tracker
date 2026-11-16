@@ -75,12 +75,68 @@ class SuggestedBudget {
   final List<SuggestedBudgetItem> excludedItems;
 }
 
+enum SuggestedBudgetUnavailableReason {
+  noCompletedSpending,
+  needsClassification,
+  noRegularSpending,
+  insufficientHistory,
+  noRecentRegularSpending,
+  noUsableSpending,
+}
+
+class SuggestedBudgetAssessment {
+  const SuggestedBudgetAssessment({
+    this.suggestion,
+    this.reason,
+    this.completedMonths = 0,
+    this.unknownCount = 0,
+  });
+
+  final SuggestedBudget? suggestion;
+  final SuggestedBudgetUnavailableReason? reason;
+  final int completedMonths;
+  final int unknownCount;
+
+  String get explanation => switch (reason) {
+    SuggestedBudgetUnavailableReason.noCompletedSpending => 'There are no recorded expenses from completed months. Import earlier statements or wait until this month ends.',
+    SuggestedBudgetUnavailableReason.needsClassification => 'No expenses from completed months are marked Regular. Review Expense Types in Financial Baseline; mark recurring or everyday spending as Regular where appropriate.',
+    SuggestedBudgetUnavailableReason.noRegularSpending => 'The suggestion uses Regular expenses. Your completed-month expenses contain no Regular spending; Planned and Unexpected expenses are not used in this calculation.',
+    SuggestedBudgetUnavailableReason.insufficientHistory =>
+      'At least $suggestedBudgetMinCompletedMonths completed months of Regular spending history are needed. You currently have $completedMonths. The current month and a partial first month are not counted.',
+    SuggestedBudgetUnavailableReason.noRecentRegularSpending =>
+      'There are no Regular expenses in the last $suggestedBudgetLookbackMonths completed months. Import recent statements or review Expense Types in Financial Baseline.',
+    SuggestedBudgetUnavailableReason.noUsableSpending => 'No positive monthly estimate remains after refunds, inactive recurring payments and isolated spending are excluded. You can set a budget manually.',
+    null => '',
+  };
+}
+
 class SuggestedBudgetService {
   SuggestedBudget? suggest({
     required List<Transaction> transactions,
     DateTime? now,
+  }) => assess(transactions: transactions, now: now).suggestion;
+
+  SuggestedBudgetAssessment assess({
+    required List<Transaction> transactions,
+    DateTime? now,
   }) {
     final currentMonth = monthStart(now ?? DateTime.now());
+    final completedHistory = transactions
+        .where(
+          (t) => !isTransferTransaction(t) && t.date.isBefore(currentMonth),
+        )
+        .toList(growable: false);
+    final unknownCount = completedHistory
+        .where((t) => t.expenseType == ExpenseType.unknown && t.amount > 0)
+        .length;
+    SuggestedBudgetAssessment unavailable(
+      SuggestedBudgetUnavailableReason reason, {
+      int completedMonths = 0,
+    }) => SuggestedBudgetAssessment(
+      reason: reason,
+      completedMonths: completedMonths,
+      unknownCount: unknownCount,
+    );
 
     // Rule 3 / Rule 4: regular expenses only, completed months only, and no
     // duplicated import rows. Negative amounts (refunds/credits) are kept so
@@ -94,7 +150,15 @@ class SuggestedBudgetService {
       ),
     );
     final charges = candidates.where((t) => t.amount > 0).toList();
-    if (charges.isEmpty) return null;
+    if (charges.isEmpty) {
+      return unavailable(
+        !completedHistory.any((t) => t.amount > 0)
+            ? SuggestedBudgetUnavailableReason.noCompletedSpending
+            : unknownCount > 0
+            ? SuggestedBudgetUnavailableReason.needsClassification
+            : SuggestedBudgetUnavailableReason.noRegularSpending,
+      );
+    }
 
     final firstDate = charges
         .map((transaction) => transaction.date)
@@ -104,7 +168,12 @@ class SuggestedBudgetService {
       firstDate.month + (firstDate.day == 1 ? 0 : 1),
     );
     final completedMonths = _monthsBetween(firstCompletedMonth, currentMonth);
-    if (completedMonths < suggestedBudgetMinCompletedMonths) return null;
+    if (completedMonths < suggestedBudgetMinCompletedMonths) {
+      return unavailable(
+        SuggestedBudgetUnavailableReason.insufficientHistory,
+        completedMonths: completedMonths,
+      );
+    }
 
     // Trailing window of complete months.
     final windowMonths = completedMonths < suggestedBudgetLookbackMonths
@@ -117,7 +186,11 @@ class SuggestedBudgetService {
     final windowHistory = candidates
         .where((transaction) => !transaction.date.isBefore(windowStart))
         .toList(growable: false);
-    if (!windowHistory.any((t) => t.amount > 0)) return null;
+    if (!windowHistory.any((t) => t.amount > 0)) {
+      return unavailable(
+        SuggestedBudgetUnavailableReason.noRecentRegularSpending,
+      );
+    }
 
     final grouped = <String, List<Transaction>>{};
     for (final transaction in windowHistory) {
@@ -261,33 +334,37 @@ class SuggestedBudgetService {
     final buffer = (recurringTotal + miscAverage) * suggestedBudgetBufferRate;
     final amount =
         ((recurringTotal + miscAverage + buffer) * 100).round() / 100;
-    if (amount <= 0) return null;
+    if (amount <= 0) {
+      return unavailable(SuggestedBudgetUnavailableReason.noUsableSpending);
+    }
 
     final historySpending = BudgetSpending.fromTransactions(
       transactions.where(
         (t) => !t.date.isBefore(windowStart) && t.date.isBefore(currentMonth),
       ),
     );
-    return SuggestedBudget(
-      historyCoveragePercent: historySpending.classifiedPercent,
-      unknownCount: transactions
-          .where(
-            (t) =>
-                t.expenseType == ExpenseType.unknown &&
-                !isTransferTransaction(t) &&
-                !t.date.isBefore(windowStart) &&
-                t.date.isBefore(currentMonth),
-          )
-          .length,
-      unknownAmount: historySpending.unknown,
-      amount: amount,
-      completedMonths: completedMonths,
-      recurringTotal: recurringTotal,
-      miscAverage: miscAverage,
-      buffer: buffer,
-      recurringItems: recurringItems,
-      miscItems: miscItems,
-      excludedItems: excludedItems,
+    return SuggestedBudgetAssessment(
+      suggestion: SuggestedBudget(
+        historyCoveragePercent: historySpending.classifiedPercent,
+        unknownCount: transactions
+            .where(
+              (t) =>
+                  t.expenseType == ExpenseType.unknown &&
+                  !isTransferTransaction(t) &&
+                  !t.date.isBefore(windowStart) &&
+                  t.date.isBefore(currentMonth),
+            )
+            .length,
+        unknownAmount: historySpending.unknown,
+        amount: amount,
+        completedMonths: completedMonths,
+        recurringTotal: recurringTotal,
+        miscAverage: miscAverage,
+        buffer: buffer,
+        recurringItems: recurringItems,
+        miscItems: miscItems,
+        excludedItems: excludedItems,
+      ),
     );
   }
 

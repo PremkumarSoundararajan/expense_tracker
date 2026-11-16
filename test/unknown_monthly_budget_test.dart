@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pocket_ledger/app_theme.dart';
 import 'package:pocket_ledger/models/transaction.dart';
 import 'package:pocket_ledger/services/monthly_rollover_service.dart';
 import 'package:pocket_ledger/widgets/monthly_budget_card.dart';
@@ -50,6 +51,7 @@ void main() {
       (tester) async {
         await tester.pumpWidget(
           MaterialApp(
+            theme: AppTheme.light,
             home: Scaffold(
               body: SingleChildScrollView(
                 child: MonthlyBudgetCard(
@@ -87,6 +89,7 @@ void main() {
   ) async {
     await tester.pumpWidget(
       MaterialApp(
+        theme: AppTheme.light,
         home: Scaffold(
           body: SingleChildScrollView(
             child: MonthlyBudgetCard(

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:pocket_ledger/app_theme.dart';
 import 'package:pocket_ledger/models/transaction.dart';
 import 'package:pocket_ledger/models/expense_category.dart';
 import 'package:pocket_ledger/services/merchant_classification_store.dart';
@@ -43,9 +44,7 @@ void main() {
         var saves = 0;
         await tester.pumpWidget(
           MaterialApp(
-            theme: ThemeData(
-              brightness: width == 390 ? Brightness.dark : Brightness.light,
-            ),
+            theme: width == 390 ? AppTheme.dark : AppTheme.light,
             home: Scaffold(
               body: SingleChildScrollView(
                 child: MerchantBaselinePanel(

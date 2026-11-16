@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../models/statement_source.dart';
 import '../services/google_sheet_statement_service.dart';
+import 'app_linear_progress_indicator.dart';
 
 class GoogleSheetImportDialog extends StatefulWidget {
   const GoogleSheetImportDialog({
@@ -122,7 +123,7 @@ class _GoogleSheetImportDialogState extends State<GoogleSheetImportDialog> {
             ],
             if (_busy) ...[
               const SizedBox(height: 16),
-              const LinearProgressIndicator(),
+              const AppLinearProgressIndicator(),
               const SizedBox(height: 8),
               Text(
                 _workbook == null
@@ -135,7 +136,9 @@ class _GoogleSheetImportDialogState extends State<GoogleSheetImportDialog> {
                 padding: const EdgeInsets.only(top: 12),
                 child: Text(
                   _error!,
-                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
                 ),
               ),
           ],

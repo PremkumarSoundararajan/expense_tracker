@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 
+import '../app_theme.dart';
 import '../services/monthly_rollover_service.dart';
 import '../services/budget_comparison.dart';
 import '../services/suggested_budget_service.dart';
 import '../utils/currency_format.dart';
 import '../utils/transaction_period_format.dart';
+import 'app_linear_progress_indicator.dart';
 import 'month_selector.dart';
 
 class MonthlyBudgetCard extends StatelessWidget {
@@ -28,10 +30,12 @@ class MonthlyBudgetCard extends StatelessWidget {
     this.suggestedBudget,
     this.onSuggestedBudgetPressed,
     this.showHeading = true,
+    this.hero = false,
   });
 
   final double currentSpent;
   final bool showHeading;
+  final bool hero;
   final BudgetSpending? spending;
   final double? regularSpent;
   final VoidCallback? onReviewUnclassified;
@@ -53,6 +57,11 @@ class MonthlyBudgetCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colors = theme.colorScheme;
+    final semanticColors = context.semanticColors;
+    final contentColor = hero ? semanticColors.onHeader : colors.onSurface;
+    final secondaryContentColor = hero
+        ? semanticColors.onHeader
+        : colors.onSurfaceVariant;
     final date = now ?? DateTime.now();
     final month = selectedMonth ?? monthStart(date);
     final current = isSameMonth(month, date);
@@ -87,9 +96,14 @@ class MonthlyBudgetCard extends StatelessWidget {
       BudgetOutcome.within => 'Within budget',
       _ => 'No budget set',
     };
-    final statusColor = result == BudgetOutcome.over
+    final statusColor = result == null
+        ? secondaryContentColor
+        : result == BudgetOutcome.over
         ? colors.error
-        : colors.primary;
+        : progressRatio >= .8
+        ? semanticColors.warning
+        : semanticColors.success;
+    final statusTextColor = hero ? semanticColors.onHeader : statusColor;
     final heading = MaterialLocalizations.of(context).formatMonthYear(month);
     Widget row(String label, String value, {bool bold = false, Color? color}) =>
         Padding(
@@ -225,14 +239,14 @@ class MonthlyBudgetCard extends StatelessWidget {
       child: Text(
         whole(amounts.total),
         maxLines: 1,
-        style: theme.textTheme.headlineMedium?.copyWith(
-          color: colors.primary,
+        style: theme.textTheme.headlineLarge?.copyWith(
+          color: contentColor,
           fontWeight: FontWeight.bold,
         ),
       ),
     );
     return Padding(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
@@ -244,22 +258,44 @@ class MonthlyBudgetCard extends StatelessWidget {
               style: TextStyle(
                 fontSize: 12,
                 fontWeight: FontWeight.bold,
-                color: colors.onSurfaceVariant,
+                color: secondaryContentColor,
               ),
             ),
             const SizedBox(height: 4),
           ],
           if (showHeading)
             if (onMonthSelected != null)
-              MonthSelector(
-                selectedMonth: month,
-                months: availableMonths,
-                now: date,
-                onSelected: onMonthSelected!,
+              Theme(
+                data: hero
+                    ? theme.copyWith(
+                        textButtonTheme: TextButtonThemeData(
+                          style: TextButton.styleFrom(
+                            foregroundColor: semanticColors.onHeader,
+                          ),
+                        ),
+                        iconButtonTheme: IconButtonThemeData(
+                          style: IconButton.styleFrom(
+                            foregroundColor: semanticColors.onHeader,
+                          ),
+                        ),
+                      )
+                    : theme,
+                child: MonthSelector(
+                  selectedMonth: month,
+                  months: availableMonths,
+                  now: date,
+                  textColor: contentColor,
+                  onSelected: onMonthSelected!,
+                ),
               )
             else
-              Text(heading, style: theme.textTheme.labelLarge),
-          const SizedBox(height: 18),
+              Text(
+                heading,
+                style: theme.textTheme.labelLarge?.copyWith(
+                  color: contentColor,
+                ),
+              ),
+          const SizedBox(height: 10),
           Row(
             key: const ValueKey('budget-kpi-row'),
             crossAxisAlignment: CrossAxisAlignment.end,
@@ -283,7 +319,7 @@ class MonthlyBudgetCard extends StatelessWidget {
                             style: TextStyle(
                               fontSize: 12,
                               fontWeight: FontWeight.bold,
-                              color: colors.onSurfaceVariant,
+                              color: secondaryContentColor,
                             ),
                           ),
                           const SizedBox(height: 6),
@@ -320,7 +356,9 @@ class MonthlyBudgetCard extends StatelessWidget {
                               style: theme.textTheme.titleSmall?.copyWith(
                                 fontSize: 15,
                                 fontWeight: FontWeight.w600,
-                                color: colors.primary,
+                                color: hero
+                                    ? semanticColors.onHeader
+                                    : colors.primary,
                               ),
                             ),
                           ),
@@ -334,7 +372,7 @@ class MonthlyBudgetCard extends StatelessWidget {
               ),
             ],
           ),
-          const SizedBox(height: 20),
+          const SizedBox(height: 12),
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -343,7 +381,7 @@ class MonthlyBudgetCard extends StatelessWidget {
                   status,
                   key: const ValueKey('budget-remaining-value'),
                   style: theme.textTheme.titleSmall?.copyWith(
-                    color: statusColor,
+                    color: statusTextColor,
                     fontWeight: FontWeight.w700,
                   ),
                 ),
@@ -358,7 +396,7 @@ class MonthlyBudgetCard extends StatelessWidget {
                       textAlign: TextAlign.right,
                       style: theme.textTheme.titleSmall?.copyWith(
                         fontWeight: FontWeight.w700,
-                        color: statusColor,
+                        color: statusTextColor,
                       ),
                     ),
                   ),
@@ -368,19 +406,30 @@ class MonthlyBudgetCard extends StatelessWidget {
           ),
           if (hasBudget) ...[
             const SizedBox(height: 10),
-            LinearProgressIndicator(
-              minHeight: 10,
-              borderRadius: BorderRadius.circular(8),
+            AppLinearProgressIndicator(
               value: progressRatio,
               color: statusColor,
+              trackColor: hero ? semanticColors.headerTrack : null,
             ),
+            if (amounts.total != amounts.budgetRelevant) ...[
+              const SizedBox(height: 6),
+              Text(
+                'Progress uses ${money(amounts.budgetRelevant)} counted toward budget',
+                key: const ValueKey('budget-counted-spending'),
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: secondaryContentColor,
+                ),
+              ),
+            ],
             if (!current && result == BudgetOutcome.within) ...[
               const SizedBox(height: 10),
               Text(
                 'Great job! You stayed within your budget.',
                 key: const ValueKey('past-budget-congratulations'),
                 style: theme.textTheme.bodySmall?.copyWith(
-                  color: colors.primary,
+                  color: hero
+                      ? semanticColors.onHeader
+                      : semanticColors.success,
                 ),
               ),
             ],
@@ -393,7 +442,9 @@ class MonthlyBudgetCard extends StatelessWidget {
                     ? 'Last month finished on budget.'
                     : 'Great job last month! ${whole(rolloverRecap!.difference)} under budget.',
                 style: theme.textTheme.bodySmall?.copyWith(
-                  color: colors.primary,
+                  color: hero
+                      ? semanticColors.onHeader
+                      : semanticColors.success,
                 ),
               ),
             ],

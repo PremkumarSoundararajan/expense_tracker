@@ -88,7 +88,7 @@ class _FavouriteSpendingSpotsWidgetState
               showSelectedIcon: false,
               style: const ButtonStyle(
                 visualDensity: VisualDensity.compact,
-                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                tapTargetSize: MaterialTapTargetSize.padded,
               ),
               segments: const [
                 ButtonSegment(
@@ -161,7 +161,7 @@ class _SpendingSpotTile extends StatelessWidget {
     final name = spot.name.isEmpty ? 'Unspecified spending spot' : spot.name;
     final metrics =
         '${formatFullCurrency(spot.total, currencySymbol)} total  ·  '
-        '${formatFullCurrency(spot.averageMonthly, currencySymbol)}/mo';
+        '${formatFullCurrency(spot.averageMonthly, currencySymbol)} avg/mo';
     return Semantics(
       button: true,
       label: '$rank. $name. $metrics',

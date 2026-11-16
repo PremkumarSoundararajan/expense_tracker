@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../app_theme.dart';
 import '../models/spending_target.dart';
 import '../models/transaction.dart';
 import '../models/financial_baseline.dart';
@@ -7,6 +8,7 @@ import '../models/expense_category.dart';
 import '../services/spending_target_service.dart';
 import '../services/spending_target_store.dart';
 import '../utils/currency_format.dart';
+import 'app_linear_progress_indicator.dart';
 
 class SpendingTargetsScreen extends StatelessWidget {
   const SpendingTargetsScreen({
@@ -136,6 +138,61 @@ class SpendingTargetsScreen extends StatelessWidget {
     }
   }
 
+  Widget _usageCard(BuildContext context, TargetUsage usage) {
+    final colors = Theme.of(context).colorScheme;
+    final semanticColors = context.semanticColors;
+    final statusColor = switch (usage.status) {
+      TargetStatus.within => semanticColors.success,
+      TargetStatus.approaching || TargetStatus.reached => semanticColors.warning,
+      TargetStatus.over => colors.error,
+    };
+    String money(double value) => formatFullCurrency(value, currencySymbol);
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              '${usage.target.name} · ${usage.target.type == SpendingTargetType.merchant ? 'Merchant' : 'Category'}',
+              style: Theme.of(context).textTheme.titleSmall,
+            ),
+            Text(
+              '${money(usage.actual)} spent / ${money(usage.target.monthlyAmount)} target',
+            ),
+            AppLinearProgressIndicator(
+              value: usage.progress.clamp(0, 1).toDouble(),
+              color: statusColor,
+            ),
+            Text(
+              '${usage.label} · ${money(usage.remaining.abs())} ${usage.remaining < 0 ? 'over target' : 'remaining'}',
+              style: TextStyle(color: statusColor),
+            ),
+            Text(
+              'Effective ${MaterialLocalizations.of(context).formatMediumDate(usage.target.effectiveDate)}',
+            ),
+            if (usage.needsReview)
+              const Text(
+                'Needs review: this scope includes unavailable or Essential spending. Only Potentially Flexible spending counts.',
+              ),
+            Wrap(
+              children: [
+                TextButton(
+                  onPressed: () => _edit(context, usage.target),
+                  child: const Text('Edit'),
+                ),
+                TextButton(
+                  onPressed: () => _deactivate(context, usage.target),
+                  child: const Text('Deactivate'),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(title: const Text('Spending Targets')),
@@ -175,49 +232,7 @@ class SpendingTargetsScreen extends StatelessWidget {
                   'No active spending targets. Activate a reduction plan to begin.',
                 ),
               ),
-            for (final u in usage)
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(12),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        '${u.target.name} · ${u.target.type == SpendingTargetType.merchant ? 'Merchant' : 'Category'}',
-                        style: Theme.of(context).textTheme.titleSmall,
-                      ),
-                      Text(
-                        '${money(u.actual)} spent / ${money(u.target.monthlyAmount)} target',
-                      ),
-                      LinearProgressIndicator(
-                        value: u.progress.clamp(0, 1).toDouble(),
-                      ),
-                      Text(
-                        '${u.label} · ${money(u.remaining.abs())} ${u.remaining < 0 ? 'over target' : 'remaining'}',
-                      ),
-                      Text(
-                        'Effective ${MaterialLocalizations.of(context).formatMediumDate(u.target.effectiveDate)}',
-                      ),
-                      if (u.needsReview)
-                        const Text(
-                          'Needs review: this scope includes unavailable or Essential spending. Only Potentially Flexible spending counts.',
-                        ),
-                      Wrap(
-                        children: [
-                          TextButton(
-                            onPressed: () => _edit(context, u.target),
-                            child: const Text('Edit'),
-                          ),
-                          TextButton(
-                            onPressed: () => _deactivate(context, u.target),
-                            child: const Text('Deactivate'),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-              ),
+            for (final u in usage) _usageCard(context, u),
             for (final t in future)
               Card(
                 child: ListTile(

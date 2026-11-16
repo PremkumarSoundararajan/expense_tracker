@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pocket_ledger/app_theme.dart';
 import 'package:pocket_ledger/models/transaction.dart';
 import 'package:pocket_ledger/services/budget_comparison.dart';
 import 'package:pocket_ledger/widgets/monthly_budget_card.dart';
@@ -11,6 +12,7 @@ void main() {
     WidgetTester tester, {
     double width = 390,
     bool dark = false,
+    bool hero = false,
     double total = 3357.29,
     double regular = 3000,
     double unexpected = 10.47,
@@ -26,10 +28,11 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
     await tester.pumpWidget(
       MaterialApp(
-        theme: ThemeData(brightness: dark ? Brightness.dark : Brightness.light),
+        theme: dark ? AppTheme.dark : AppTheme.light,
         home: Scaffold(
           body: SingleChildScrollView(
             child: MonthlyBudgetCard(
+              hero: hero,
               currentSpent: total,
               regularSpent: regular,
               unexpectedOccasionalSpent: unexpected,
@@ -62,6 +65,55 @@ void main() {
     expect(find.text('THIS MONTH'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
+
+  for (final dark in [false, true]) {
+    testWidgets('hero month label uses onHeader in dark=$dark', (tester) async {
+      await show(tester, dark: dark, hero: true);
+      final semantic = (dark ? AppTheme.dark : AppTheme.light)
+          .extension<AppSemanticColors>()!;
+      expect(
+        tester.widget<Text>(find.text('November 2026')).style?.color,
+        semantic.onHeader,
+      );
+    });
+  }
+
+  testWidgets(
+    'budget progress uses semantic status colors and neutral totals',
+    (tester) async {
+      await show(tester, total: 79, regular: 79, unexpected: 0, budget: 100);
+      final actual = tester.widget<Text>(find.text(r'$79'));
+      expect(actual.style?.color, AppTheme.light.colorScheme.onSurface);
+      expect(
+        tester
+            .widget<LinearProgressIndicator>(
+              find.byType(LinearProgressIndicator),
+            )
+            .color,
+        AppTheme.light.extension<AppSemanticColors>()!.success,
+      );
+
+      await show(tester, total: 80, regular: 80, unexpected: 0, budget: 100);
+      expect(
+        tester
+            .widget<LinearProgressIndicator>(
+              find.byType(LinearProgressIndicator),
+            )
+            .color,
+        AppTheme.light.extension<AppSemanticColors>()!.warning,
+      );
+
+      await show(tester, total: 101, regular: 101, unexpected: 0, budget: 100);
+      expect(
+        tester
+            .widget<LinearProgressIndicator>(
+              find.byType(LinearProgressIndicator),
+            )
+            .color,
+        AppTheme.light.colorScheme.error,
+      );
+    },
+  );
 
   for (final width in [320.0, 390.0]) {
     testWidgets('budget amount and info open details at $width', (
@@ -112,7 +164,10 @@ void main() {
         );
         expect(find.text('ACTUAL EXPENSE'), findsOneWidget);
         expect(find.text(r'Budget: $4,349'), findsOneWidget);
-        expect(find.textContaining('counted toward budget'), findsNothing);
+        expect(
+          find.text('Progress uses \$3,346.82 counted toward budget'),
+          findsOneWidget,
+        );
         final kpis = tester.widget<Row>(
           find.byKey(const ValueKey('budget-kpi-row')),
         );
@@ -129,6 +184,10 @@ void main() {
           find.byType(LinearProgressIndicator),
         );
         expect(progress.value, closeTo(3346.82 / 4349.35, .000001));
+        expect(
+          tester.getSize(find.byTooltip('Previous month')),
+          const Size(48, 48),
+        );
         expect(find.text('By Category'), findsNothing);
         expect(find.text('Total actual spending'), findsNothing);
         expect(

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import 'package:pocket_ledger/app_theme.dart';
 import 'package:pocket_ledger/main.dart';
 import 'package:pocket_ledger/models/transaction.dart';
 import 'package:pocket_ledger/services/financial_baseline_service.dart';
@@ -42,6 +43,7 @@ void main() {
       var action = '';
       Future<void> show(double percent) => tester.pumpWidget(
         MaterialApp(
+          theme: AppTheme.light,
           home: Scaffold(
             body: InsightShortcuts(
               summary: FinancialBaselineService().summarize(
@@ -95,9 +97,7 @@ void main() {
         addTearDown(tester.view.resetDevicePixelRatio);
         await tester.pumpWidget(
           MaterialApp(
-            theme: ThemeData(
-              brightness: width == 390 ? Brightness.dark : Brightness.light,
-            ),
+            theme: width == 390 ? AppTheme.dark : AppTheme.light,
             builder: (context, child) => MediaQuery(
               data: MediaQuery.of(context)
                   .copyWith(textScaler: TextScaler.linear(scale)),
@@ -126,7 +126,9 @@ void main() {
             tester.getRect(find.byKey(ValueKey('insight-shortcut-$label')));
         expect(button('Spending trends').top, button('Spending spots').top);
         expect(button('Spending trends').top, button('Suggested budget').top);
+        expect(find.text('Explore'), findsOneWidget);
         expect(button('Savings insights').top, button('Spending targets').top);
+        expect(find.text('Based on your baseline'), findsOneWidget);
         expect(
           button('Savings insights').top,
           greaterThan(button('Suggested budget').bottom),
@@ -153,6 +155,7 @@ void main() {
           .saveCached(rows(0));
       await tester.pumpWidget(
         MaterialApp(
+          theme: AppTheme.light,
           home: DashboardScreen(
             account: _Account(),
             isDarkMode: false,

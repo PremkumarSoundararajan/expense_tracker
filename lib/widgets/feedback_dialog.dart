@@ -94,7 +94,9 @@ class _FeedbackDialogState extends State<FeedbackDialog> {
             if (_error != null)
               Text(
                 _error!,
-                style: TextStyle(color: Theme.of(context).colorScheme.error),
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
               ),
           ],
         ),

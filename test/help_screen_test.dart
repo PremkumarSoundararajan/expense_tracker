@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import 'package:pocket_ledger/app_theme.dart';
 import 'package:pocket_ledger/main.dart';
 import 'package:pocket_ledger/models/transaction.dart';
 import 'package:pocket_ledger/services/local_transaction_store.dart';
@@ -25,9 +26,7 @@ void main() {
         addTearDown(tester.view.resetDevicePixelRatio);
         await tester.pumpWidget(
           MaterialApp(
-            theme: ThemeData(
-              brightness: dark ? Brightness.dark : Brightness.light,
-            ),
+            theme: dark ? AppTheme.dark : AppTheme.light,
             home: const HelpScreen(),
           ),
         );
@@ -76,6 +75,7 @@ void main() {
           ]);
       await tester.pumpWidget(
         MaterialApp(
+          theme: AppTheme.light,
           home: DashboardScreen(
             account: _Account(),
             isDarkMode: false,

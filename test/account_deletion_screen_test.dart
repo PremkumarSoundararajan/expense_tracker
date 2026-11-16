@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import 'package:pocket_ledger/app_theme.dart';
 import 'package:pocket_ledger/main.dart';
 import 'package:pocket_ledger/services/account_deletion_service.dart';
 import 'package:pocket_ledger/widgets/account_deletion_screen.dart';
@@ -28,6 +29,7 @@ void main() {
       });
       await tester.pumpWidget(
         MaterialApp(
+          theme: AppTheme.light,
           home: DashboardScreen(
             account: _DeletionAccount(),
             isDarkMode: false,

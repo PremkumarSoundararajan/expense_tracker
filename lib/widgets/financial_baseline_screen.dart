@@ -1,15 +1,16 @@
 import 'package:flutter/material.dart';
 
-import '../services/spending_target_store.dart';
-
+import '../app_theme.dart';
 import '../models/financial_baseline.dart';
 import '../models/expense_category.dart';
 import '../models/transaction.dart';
 import '../services/financial_baseline_service.dart';
 import '../services/financial_baseline_insights_service.dart';
-import '../widgets/spending_reduction_planner_screen.dart';
 import '../services/merchant_discovery_service.dart';
+import '../services/spending_target_store.dart';
 import '../utils/currency_format.dart';
+import 'app_linear_progress_indicator.dart';
+import 'spending_reduction_planner_screen.dart';
 
 class FinancialBaselineScreen extends StatefulWidget {
   const FinancialBaselineScreen({
@@ -422,7 +423,7 @@ class _FinancialBaselineScreenState extends State<FinancialBaselineScreen> {
                 'Some restored draft changes conflict with newer saved assignments. The saved assignments were kept for ${_draftConflictMerchants.join(', ')}. Reassign them here if you still want to change them.',
                 key: const ValueKey('baseline-draft-conflicts'),
                 style: Theme.of(context).textTheme.bodySmall
-                    ?.copyWith(color: colors.error),
+                    ?.copyWith(color: colors.onSurfaceVariant),
               ),
             ),
           const SizedBox(height: 8),
@@ -626,18 +627,17 @@ class _FinancialBaselineScreenState extends State<FinancialBaselineScreen> {
         ),
       ],
     );
-    return Container(
+    return Card(
       key: const ValueKey('unassigned-merchants-panel'),
-      height: compact
-          ? (MediaQuery.sizeOf(context).height * .72).clamp(430, 720).toDouble()
-          : 480,
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        color: colors.surfaceContainerLow,
-        border: Border.all(color: colors.outlineVariant),
-        borderRadius: BorderRadius.circular(12),
+      margin: EdgeInsets.zero,
+      child: SizedBox(
+        height: compact
+            ? (MediaQuery.sizeOf(context).height * .72)
+                  .clamp(430, 720)
+                  .toDouble()
+            : 480,
+        child: Padding(padding: const EdgeInsets.all(10), child: list),
       ),
-      child: list,
     );
   }
 
@@ -823,122 +823,121 @@ class _FinancialBaselineScreenState extends State<FinancialBaselineScreen> {
         .toList(growable: false);
     final available = _unassignedMerchants;
     final tint = _groupColor(group);
-    return Container(
+    return Card(
       key: ValueKey('baseline-group-${group.name}'),
-      padding: const EdgeInsets.fromLTRB(10, 7, 10, 8),
-      decoration: BoxDecoration(
-        color: colors.surface,
-        border: Border.all(color: colors.outlineVariant),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(_groupIcon(group), color: tint),
-              const SizedBox(width: 7),
-              Expanded(
-                child: Text(
-                  group.label,
-                  style: Theme.of(context).textTheme.titleSmall
-                      ?.copyWith(fontWeight: FontWeight.w800, color: tint),
-                ),
-              ),
-              Text(
-                '${mappings.length} assigned',
-                style: Theme.of(context).textTheme.labelSmall,
-              ),
-            ],
-          ),
-          const SizedBox(height: 3),
-          Text(
-            group == BaselineGroup.essential
-                ? 'Needs and obligations you plan to maintain.'
-                : 'Spending you could reduce, optimize, or eliminate.',
-            style: Theme.of(context).textTheme.bodySmall,
-          ),
-          Autocomplete<DiscoveredMerchant>(
-            key: ValueKey('group-autocomplete-${group.name}'),
-            displayStringForOption: (merchant) => merchant.merchantFingerprint,
-            optionsBuilder: (value) {
-              final query = _normalizedFingerprint(value.text);
-              if (query.isEmpty) {
-                return const Iterable<DiscoveredMerchant>.empty();
-              }
-              return available
-                  .where(
-                    (merchant) =>
-                        _normalizedFingerprint(merchant.merchantFingerprint)
-                            .contains(query) ||
-                        (_merchantSearchIndex[_stateKey(merchant)]?.contains(
-                              query,
-                            ) ??
-                            false),
-                  )
-                  .take(12);
-            },
-            onSelected: (merchant) =>
-                _selectMerchantFromSearch(group, merchant),
-            optionsViewBuilder: (context, onSelected, options) => Align(
-              alignment: Alignment.topLeft,
-              child: Material(
-                elevation: 5,
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(
-                    maxHeight: 240,
-                    maxWidth: 420,
-                  ),
-                  child: ListView(
-                    shrinkWrap: true,
-                    padding: EdgeInsets.zero,
-                    children: [
-                      for (final merchant in options)
-                        ListTile(
-                          key: ValueKey(
-                            'autocomplete-option-${_stateKey(merchant)}',
-                          ),
-                          dense: true,
-                          title: Text(merchant.merchantFingerprint),
-                          subtitle: Text(
-                            '${merchant.occurrenceCount} transactions · ${formatFullCurrency(merchant.totalAmount, widget.currencySymbol)}',
-                          ),
-                          onTap: () => onSelected(merchant),
-                        ),
-                    ],
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(10, 7, 10, 8),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(_groupIcon(group), color: tint),
+                const SizedBox(width: 7),
+                Expanded(
+                  child: Text(
+                    group.label,
+                    style: Theme.of(context).textTheme.titleSmall
+                        ?.copyWith(fontWeight: FontWeight.w800, color: tint),
                   ),
                 ),
-              ),
+                Text(
+                  '${mappings.length} assigned',
+                  style: Theme.of(context).textTheme.labelSmall,
+                ),
+              ],
             ),
-            fieldViewBuilder:
-                (context, controller, focusNode, onFieldSubmitted) {
-                  _groupSearchControllers[group] = controller;
-                  _groupSearchFocusNodes[group] = focusNode;
-                  return TextField(
-                    key: ValueKey('group-search-${group.name}'),
-                    controller: controller,
-                    focusNode: focusNode,
-                    textInputAction: TextInputAction.search,
-                    decoration: InputDecoration(
-                      isDense: true,
-                      prefixIcon: const Icon(Icons.search),
-                      prefixIconConstraints: const BoxConstraints(
-                        minWidth: 32,
-                        minHeight: 32,
-                      ),
-                      hintText: 'Add merchant',
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 5,
-                        vertical: 6,
-                      ),
+            const SizedBox(height: 3),
+            Text(
+              group == BaselineGroup.essential
+                  ? 'Needs and obligations you plan to maintain.'
+                  : 'Spending you could reduce, optimize, or eliminate.',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            Autocomplete<DiscoveredMerchant>(
+              key: ValueKey('group-autocomplete-${group.name}'),
+              displayStringForOption: (merchant) =>
+                  merchant.merchantFingerprint,
+              optionsBuilder: (value) {
+                final query = _normalizedFingerprint(value.text);
+                if (query.isEmpty) {
+                  return const Iterable<DiscoveredMerchant>.empty();
+                }
+                return available
+                    .where(
+                      (merchant) =>
+                          _normalizedFingerprint(merchant.merchantFingerprint)
+                              .contains(query) ||
+                          (_merchantSearchIndex[_stateKey(merchant)]?.contains(
+                                query,
+                              ) ??
+                              false),
+                    )
+                    .take(12);
+              },
+              onSelected: (merchant) =>
+                  _selectMerchantFromSearch(group, merchant),
+              optionsViewBuilder: (context, onSelected, options) => Align(
+                alignment: Alignment.topLeft,
+                child: Material(
+                  elevation: 5,
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(
+                      maxHeight: 240,
+                      maxWidth: 420,
                     ),
-                  );
-                },
-          ),
-        ],
+                    child: ListView(
+                      shrinkWrap: true,
+                      padding: EdgeInsets.zero,
+                      children: [
+                        for (final merchant in options)
+                          ListTile(
+                            key: ValueKey(
+                              'autocomplete-option-${_stateKey(merchant)}',
+                            ),
+                            dense: true,
+                            title: Text(merchant.merchantFingerprint),
+                            subtitle: Text(
+                              '${merchant.occurrenceCount} transactions · ${formatFullCurrency(merchant.totalAmount, widget.currencySymbol)}',
+                            ),
+                            onTap: () => onSelected(merchant),
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              fieldViewBuilder:
+                  (context, controller, focusNode, onFieldSubmitted) {
+                    _groupSearchControllers[group] = controller;
+                    _groupSearchFocusNodes[group] = focusNode;
+                    return TextField(
+                      key: ValueKey('group-search-${group.name}'),
+                      controller: controller,
+                      focusNode: focusNode,
+                      textInputAction: TextInputAction.search,
+                      decoration: InputDecoration(
+                        isDense: true,
+                        prefixIcon: const Icon(Icons.search),
+                        prefixIconConstraints: const BoxConstraints(
+                          minWidth: 32,
+                          minHeight: 32,
+                        ),
+                        hintText: 'Add merchant',
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 5,
+                          vertical: 6,
+                        ),
+                      ),
+                    );
+                  },
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -976,12 +975,10 @@ class _FinancialBaselineScreenState extends State<FinancialBaselineScreen> {
                 const SizedBox(height: 5),
                 ClipRRect(
                   borderRadius: BorderRadius.circular(8),
-                  child: LinearProgressIndicator(
+                  child: AppLinearProgressIndicator(
                     key: const ValueKey('classification-progress'),
                     value: percentage / 100,
-                    minHeight: 6,
                     color: colors.primary,
-                    backgroundColor: colors.errorContainer,
                   ),
                 ),
               ],
@@ -1109,45 +1106,48 @@ class _FinancialBaselineScreenState extends State<FinancialBaselineScreen> {
       Color color, {
       VoidCallback? onTap,
       Key? key,
-    }) => InkWell(
+    }) => Card(
       key: key,
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(11),
-      child: Container(
-        constraints: const BoxConstraints(minWidth: 205),
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: color.withValues(alpha: .07),
-          border: Border.all(color: color.withValues(alpha: .22)),
-          borderRadius: BorderRadius.circular(11),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              mainAxisSize: MainAxisSize.min,
+      margin: EdgeInsets.zero,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(20),
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(minWidth: 205),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Flexible(
-                  child: Text(
-                    title,
-                    style: Theme.of(context).textTheme.labelMedium
-                        ?.copyWith(fontWeight: FontWeight.w700, color: color),
-                  ),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Flexible(
+                      child: Text(
+                        title,
+                        style: Theme.of(context).textTheme.labelMedium
+                            ?.copyWith(
+                              fontWeight: FontWeight.w700,
+                              color: color,
+                            ),
+                      ),
+                    ),
+                    if (onTap != null) ...[
+                      const SizedBox(width: 5),
+                      Icon(Icons.chevron_right, size: 18, color: color),
+                    ],
+                  ],
                 ),
-                if (onTap != null) ...[
-                  const SizedBox(width: 5),
-                  Icon(Icons.chevron_right, size: 18, color: color),
-                ],
+                const SizedBox(height: 4),
+                Text(
+                  value,
+                  style: Theme.of(context).textTheme.titleLarge
+                      ?.copyWith(fontWeight: FontWeight.w800),
+                ),
+                const Text('per month, normalized'),
               ],
             ),
-            const SizedBox(height: 4),
-            Text(
-              value,
-              style: Theme.of(context).textTheme.titleLarge
-                  ?.copyWith(fontWeight: FontWeight.w800),
-            ),
-            const Text('per month, normalized'),
-          ],
+          ),
         ),
       ),
     );
@@ -1203,11 +1203,9 @@ class _FinancialBaselineScreenState extends State<FinancialBaselineScreen> {
                 ),
                 ClipRRect(
                   borderRadius: BorderRadius.circular(8),
-                  child: LinearProgressIndicator(
+                  child: AppLinearProgressIndicator(
                     value: summary.classifiedPercentage / 100,
-                    minHeight: 8,
                     color: colors.primary,
-                    backgroundColor: colors.errorContainer,
                   ),
                 ),
                 if (readiness == BaselineInsightReadiness.insufficient) ...[
@@ -1243,6 +1241,13 @@ class _FinancialBaselineScreenState extends State<FinancialBaselineScreen> {
                     ),
                   ],
                 ),
+                const SizedBox(height: 6),
+                Text(
+                  'Monthly averages across ${summary.monthCount} calendar '
+                  '${summary.monthCount == 1 ? 'month' : 'months'} of tracked history.',
+                  key: const ValueKey('baseline-average-period'),
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
                 const SizedBox(height: 8),
                 const Text(
                   'Baseline = Essential · Adjustable = Potentially Flexible',
@@ -1257,6 +1262,11 @@ class _FinancialBaselineScreenState extends State<FinancialBaselineScreen> {
                 const Text('Last 6 completed months'),
                 const SizedBox(height: 4),
                 _buildMonthlyTrendChart(spendingTrend.months, colors),
+                const SizedBox(height: 4),
+                const Text(
+                  'Bars show monthly totals. Excluded transactions are not included.',
+                  key: ValueKey('baseline-chart-period-note'),
+                ),
                 const SizedBox(height: 8),
                 Text(
                   spendingTrend.observation,
@@ -1326,9 +1336,9 @@ class _FinancialBaselineScreenState extends State<FinancialBaselineScreen> {
       (maximum, month) => month.total > maximum ? month.total : maximum,
     );
     final chartHeight = 112.0;
-    final baselineColor = _groupColor(BaselineGroup.essential);
-    final adjustableColor = _groupColor(BaselineGroup.potentiallyFlexible);
-    final unclassifiedColor = colors.outlineVariant;
+    final baselineColor = colors.primary;
+    final adjustableColor = colors.primary.withValues(alpha: .8);
+    final unclassifiedColor = colors.primary.withValues(alpha: .62);
     return Column(
       children: [
         SizedBox(
@@ -1438,10 +1448,9 @@ class _FinancialBaselineScreenState extends State<FinancialBaselineScreen> {
     ],
   );
 
-  Color _groupColor(BaselineGroup group) => switch (group) {
-    BaselineGroup.essential => const Color(0xFF1B4D3E),
-    BaselineGroup.potentiallyFlexible => const Color(0xFFC56818),
-  };
+  Color _groupColor(BaselineGroup group) => group == BaselineGroup.essential
+      ? context.semanticColors.success
+      : Theme.of(context).colorScheme.primary;
 
   IconData _groupIcon(BaselineGroup group) => switch (group) {
     BaselineGroup.essential => Icons.home_outlined,
@@ -1487,10 +1496,7 @@ class _FinancialBaselineScreenState extends State<FinancialBaselineScreen> {
       bottomNavigationBar: SafeArea(
         child: Container(
           padding: const EdgeInsets.fromLTRB(16, 9, 16, 9),
-          decoration: BoxDecoration(
-            color: colors.surface,
-            border: Border(top: BorderSide(color: colors.outlineVariant)),
-          ),
+          decoration: BoxDecoration(color: colors.surface),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -1547,7 +1553,7 @@ class _FinancialBaselineScreenState extends State<FinancialBaselineScreen> {
               '$conflicts transaction(s) have overlapping merchant groups and remain unclassified.',
               key: const ValueKey('baseline-mapping-conflicts'),
               style: Theme.of(context).textTheme.labelSmall
-                  ?.copyWith(color: colors.error),
+                  ?.copyWith(color: colors.onSurfaceVariant),
             ),
           ],
         ],

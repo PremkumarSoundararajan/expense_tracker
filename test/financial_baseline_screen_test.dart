@@ -1,11 +1,46 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pocket_ledger/app_theme.dart';
 import 'package:pocket_ledger/models/expense_category.dart';
 import 'package:pocket_ledger/models/financial_baseline.dart';
 import 'package:pocket_ledger/models/transaction.dart';
 import 'package:pocket_ledger/widgets/financial_baseline_screen.dart';
 
 void main() {
+  testWidgets('baseline averages and chart explicitly label their periods', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light,
+        home: FinancialBaselineScreen(
+          insightsOnly: true,
+          transactions: [_transaction(DateTime(2025, 1), 60, 'LOCAL MARKET')],
+          initialMappings: const [
+            FinancialBaselineMapping(
+              merchantFingerprint: 'LOCAL MARKET',
+              group: BaselineGroup.essential,
+            ),
+          ],
+          currencySymbol: r'$',
+          onMappingsSaved: (_) async => null,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      find.text('Monthly averages across 1 calendar month of tracked history.'),
+      findsOneWidget,
+    );
+    expect(find.text('Last 6 completed months'), findsOneWidget);
+    expect(
+      find.text(
+        'Bars show monthly totals. Excluded transactions are not included.',
+      ),
+      findsOneWidget,
+    );
+  });
+
   for (final width in [1280.0, 390.0]) {
     testWidgets('insights action stays next to the top summary at $width', (
       tester,
@@ -16,6 +51,7 @@ void main() {
       addTearDown(tester.view.resetDevicePixelRatio);
       await tester.pumpWidget(
         MaterialApp(
+          theme: AppTheme.light,
           home: FinancialBaselineScreen(
             insightsOnly: true,
             transactions: [_transaction(DateTime(2025, 1), 60, 'LOCAL MARKET')],
@@ -51,6 +87,7 @@ void main() {
   ) async {
     await tester.pumpWidget(
       MaterialApp(
+        theme: AppTheme.light,
         home: FinancialBaselineScreen(
           transactions: [_transaction(DateTime(2025, 1), 60, 'LOCAL MARKET')],
           initialMappings: const [],
@@ -100,6 +137,7 @@ void main() {
       List<FinancialBaselineMapping>? saved;
       await tester.pumpWidget(
         MaterialApp(
+          theme: AppTheme.light,
           home: FinancialBaselineScreen(
             transactions: [
               _transaction(DateTime(2025, 1), 40, 'KROGER #8'),
@@ -169,6 +207,7 @@ void main() {
     ];
     await tester.pumpWidget(
       MaterialApp(
+        theme: AppTheme.light,
         home: FinancialBaselineScreen(
           transactions: const [],
           initialMappings: mappings,
@@ -199,6 +238,7 @@ void main() {
     var writes = 0;
     await tester.pumpWidget(
       MaterialApp(
+        theme: AppTheme.light,
         home: FinancialBaselineScreen(
           transactions: [
             _transaction(DateTime(2025, 1), 15, 'NETFLIX MONTHLY'),
@@ -309,6 +349,7 @@ void main() {
       ];
       await tester.pumpWidget(
         MaterialApp(
+          theme: AppTheme.light,
           home: FinancialBaselineScreen(
             transactions: transactions,
             initialMappings: const [],
@@ -371,6 +412,7 @@ void main() {
     (tester) async {
       await tester.pumpWidget(
         MaterialApp(
+          theme: AppTheme.light,
           home: FinancialBaselineScreen(
             transactions: [_transaction(DateTime(2025, 1), 25, 'COFFEE')],
             initialMappings: const [],
@@ -437,6 +479,7 @@ void main() {
       }
       await tester.pumpWidget(
         MaterialApp(
+          theme: AppTheme.light,
           home: FinancialBaselineScreen(
             key: ValueKey('insight-screen-$percentage'),
             transactions: transactions,
@@ -526,6 +569,7 @@ void main() {
     ];
     await tester.pumpWidget(
       MaterialApp(
+        theme: AppTheme.light,
         home: FinancialBaselineScreen(
           transactions: [
             Transaction(
@@ -651,6 +695,7 @@ void main() {
     );
     await tester.pumpWidget(
       MaterialApp(
+        theme: AppTheme.light,
         home: FinancialBaselineScreen(
           transactions: [_transaction(DateTime(2025, 1), 100, 'RENT')],
           initialMappings: const [committed],
@@ -747,6 +792,7 @@ void main() {
     ];
     await tester.pumpWidget(
       MaterialApp(
+        theme: AppTheme.light,
         home: FinancialBaselineScreen(
           transactions: transactions,
           initialMappings: const [],
@@ -787,6 +833,7 @@ void main() {
       var writes = 0;
       await tester.pumpWidget(
         MaterialApp(
+          theme: AppTheme.light,
           home: FinancialBaselineScreen(
             transactions: [
               _transaction(DateTime(2026, 12), 20, 'NETFLIX MONTHLY PLAN'),

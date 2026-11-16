@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:pocket_ledger/app_theme.dart';
 import 'package:pocket_ledger/models/transaction.dart';
 import 'package:pocket_ledger/models/spending_target.dart';
 import 'package:pocket_ledger/models/financial_baseline.dart';
@@ -42,6 +43,7 @@ void main() {
       ];
       await tester.pumpWidget(
         MaterialApp(
+          theme: AppTheme.light,
           home: SpendingReductionPlannerScreen(
             transactions: ledger,
             lifestyleMappings: mappings,
@@ -102,6 +104,7 @@ void main() {
       await store.save([original]);
       await tester.pumpWidget(
         MaterialApp(
+          theme: AppTheme.light,
           home: SpendingTargetsScreen(
             store: store,
             transactions: [

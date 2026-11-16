@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 
+import 'app_linear_progress_indicator.dart';
+
 class DailyReminderSettingsDialog extends StatefulWidget {
   const DailyReminderSettingsDialog({
     super.key,
@@ -200,12 +202,14 @@ class _DailyReminderSettingsDialogState
                 label: const Text('Send test notification'),
               ),
             if (_testResult != null) Text(_testResult!),
-            if (_isUpdating) const LinearProgressIndicator(),
+            if (_isUpdating) const AppLinearProgressIndicator(),
             if (_errorMessage != null) ...[
               const SizedBox(height: 8),
               Text(
                 _errorMessage!,
-                style: TextStyle(color: Theme.of(context).colorScheme.error),
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
               ),
             ],
           ],

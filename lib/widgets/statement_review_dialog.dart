@@ -428,18 +428,18 @@ class _StatementReviewDialogState extends State<StatementReviewDialog> {
 
   Widget _buildMobileRow(int index, ThemeData theme) {
     final row = _rows[index];
-    final duplicateColor = theme.colorScheme.errorContainer;
-    return Container(
+    final duplicateColor = theme.colorScheme.surfaceContainerHighest;
+    return Card(
       key: ValueKey('statement-review-row-$index'),
-      padding: const EdgeInsets.fromLTRB(12, 8, 12, 10),
-      decoration: BoxDecoration(
-        color: row.duplicate ? duplicateColor.withValues(alpha: .28) : null,
-        border: Border.all(color: theme.colorScheme.outlineVariant),
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
+      color: row.duplicate
+          ? duplicateColor
+          : theme.colorScheme.surfaceContainerLow,
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 8, 12, 10),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
           Row(
             children: [
               Expanded(
@@ -464,7 +464,7 @@ class _StatementReviewDialogState extends State<StatementReviewDialog> {
                   child: Icon(
                     Icons.info_outline,
                     size: 18,
-                    color: theme.colorScheme.error,
+                    color: theme.colorScheme.onSurfaceVariant,
                   ),
                 ),
               ],
@@ -543,7 +543,8 @@ class _StatementReviewDialogState extends State<StatementReviewDialog> {
                 _rows[index] = row.withImportAnyway(value ?? false);
               }),
             ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -612,7 +613,7 @@ class _StatementReviewDialogState extends State<StatementReviewDialog> {
 
   Widget _buildRow(int index, ThemeData theme) {
     final row = _rows[index];
-    final duplicateColor = theme.colorScheme.errorContainer;
+    final duplicateColor = theme.colorScheme.surfaceContainerHighest;
     return Container(
       key: ValueKey('statement-review-row-$index'),
       constraints: const BoxConstraints(minHeight: 48),

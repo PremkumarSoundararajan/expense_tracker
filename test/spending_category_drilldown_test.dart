@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:pocket_ledger/app_theme.dart';
 import 'package:pocket_ledger/main.dart';
 import 'package:pocket_ledger/models/expense_category.dart';
 import 'package:pocket_ledger/models/transaction.dart';
@@ -131,6 +132,7 @@ Future<void> boot(
       ]);
   await tester.pumpWidget(
     MaterialApp(
+      theme: AppTheme.light,
       home: DashboardScreen(
         account: _Account(),
         isDarkMode: true,

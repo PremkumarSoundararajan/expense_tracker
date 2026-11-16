@@ -10,11 +10,13 @@ class MonthSelector extends StatelessWidget {
     required this.months,
     required this.onSelected,
     this.now,
+    this.textColor,
   });
   final DateTime selectedMonth;
   final List<DateTime> months;
   final ValueChanged<DateTime> onSelected;
   final DateTime? now;
+  final Color? textColor;
 
   @override
   Widget build(BuildContext context) {
@@ -44,7 +46,7 @@ class MonthSelector extends StatelessWidget {
         IconButton(
           tooltip: 'Previous month',
           padding: EdgeInsets.zero,
-          constraints: const BoxConstraints.tightFor(width: 32, height: 44),
+          constraints: const BoxConstraints.tightFor(width: 48, height: 48),
           onPressed: selected.isAfter(first)
               ? () => onSelected(DateTime(selected.year, selected.month - 1))
               : null,
@@ -61,14 +63,14 @@ class MonthSelector extends StatelessWidget {
               MaterialLocalizations.of(context).formatMonthYear(selected),
               textAlign: TextAlign.center,
               style: Theme.of(context).textTheme.titleMedium
-                  ?.copyWith(fontWeight: FontWeight.w600),
+                  ?.copyWith(color: textColor, fontWeight: FontWeight.w600),
             ),
           ),
         ),
         IconButton(
           tooltip: 'Next month',
           padding: EdgeInsets.zero,
-          constraints: const BoxConstraints.tightFor(width: 32, height: 44),
+          constraints: const BoxConstraints.tightFor(width: 48, height: 48),
           onPressed: selected.isBefore(current)
               ? () => onSelected(nextMonthStart(selected))
               : null,
@@ -77,7 +79,7 @@ class MonthSelector extends StatelessWidget {
         IconButton(
           tooltip: 'Choose month',
           padding: EdgeInsets.zero,
-          constraints: const BoxConstraints.tightFor(width: 32, height: 44),
+          constraints: const BoxConstraints.tightFor(width: 48, height: 48),
           onPressed: pickMonth,
           icon: const Icon(Icons.calendar_month_outlined),
         ),

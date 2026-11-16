@@ -555,6 +555,14 @@ class _SpendingSummaryWidgetState extends State<SpendingSummaryWidget> {
       currencySymbol: widget.currencySymbol,
     );
 
+    final seriesLabel = _series == SpendSeries.regular ? 'Regular' : 'Actual';
+    final currentSpend = _series == SpendSeries.regular
+        ? average.regularCurrentSpend
+        : average.currentSpend;
+    final historicalAverage = _series == SpendSeries.regular
+        ? average.regularAverage
+        : average.average;
+    final frequencyName = _frequency.name;
     final colorScheme = Theme.of(context).colorScheme;
     return Card(
       margin: widget.cardMargin,
@@ -589,6 +597,7 @@ class _SpendingSummaryWidgetState extends State<SpendingSummaryWidget> {
             ...[
               const SizedBox(height: 8),
               DropdownButtonFormField<SummaryFrequency>(
+                isExpanded: true,
                 initialValue: _frequency,
                 decoration: const InputDecoration(
                   labelText: 'Average frequency',
@@ -630,7 +639,7 @@ class _SpendingSummaryWidgetState extends State<SpendingSummaryWidget> {
                     showSelectedIcon: false,
                     style: const ButtonStyle(
                       visualDensity: VisualDensity.compact,
-                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      tapTargetSize: MaterialTapTargetSize.padded,
                     ),
                     segments: const [
                       ButtonSegment(
@@ -649,21 +658,53 @@ class _SpendingSummaryWidgetState extends State<SpendingSummaryWidget> {
                 ],
               ),
               const SizedBox(height: 12),
+              Row(
+                key: const ValueKey('spending-period-comparison'),
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: _PeriodMetric(
+                      label: '${average.currentLabel} · $seriesLabel',
+                      amount: formatFullCurrency(
+                        currentSpend,
+                        widget.currencySymbol,
+                      ),
+                      detail: _currentPeriodRange(context),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Container(
+                    width: 1,
+                    height: 64,
+                    color: colorScheme.outlineVariant,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: _PeriodMetric(
+                      label: '${average.averageLabel} · $seriesLabel',
+                      amount: average.periodCount == 0
+                          ? '—'
+                          : formatFullCurrency(
+                              historicalAverage,
+                              widget.currencySymbol,
+                            ),
+                      detail: average.periodCount == 0
+                          ? average.averageLabel
+                          : 'Average of ${average.periodCount} completed '
+                                '${_periodUnit(_frequency, average.periodCount)}',
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
               SpendingAveragesChart(
                 points: chartPoints,
                 actualAverage: average.average,
                 regularAverage: average.regularAverage,
                 currencySymbol: widget.currencySymbol,
                 series: _series,
+                averageLegendLabel: '$seriesLabel $frequencyName average',
               ),
-              if (average.periodCount > 0) ...[
-                const SizedBox(height: 6),
-                Text(
-                  'Based on ${average.periodCount} '
-                  '${_periodUnit(_frequency, average.periodCount)}',
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-              ],
               if (observations.isNotEmpty) ...[
                 const SizedBox(height: 8),
                 for (final observation in observations)
@@ -704,5 +745,54 @@ class _SpendingSummaryWidgetState extends State<SpendingSummaryWidget> {
       SummaryFrequency.monthly => 'Monthly Average',
       SummaryFrequency.yearly => 'Yearly Average',
     };
+  }
+
+  String _currentPeriodRange(BuildContext context) {
+    final now = widget.now ?? DateTime.now();
+    final date = MaterialLocalizations.of(context).formatMediumDate(now);
+    return switch (_frequency) {
+      SummaryFrequency.daily => 'Today · $date',
+      SummaryFrequency.monthly => 'Month to date · through $date',
+      SummaryFrequency.yearly => 'Year to date · through $date',
+    };
+  }
+}
+
+class _PeriodMetric extends StatelessWidget {
+  const _PeriodMetric({
+    required this.label,
+    required this.amount,
+    required this.detail,
+  });
+
+  final String label;
+  final String amount;
+  final String detail;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(label, style: theme.textTheme.labelMedium),
+        const SizedBox(height: 2),
+        Text(
+          amount,
+          style: theme.textTheme.titleMedium?.copyWith(
+            fontWeight: FontWeight.w700,
+            color: theme.colorScheme.onSurface,
+          ),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          detail,
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
+        ),
+      ],
+    );
   }
 }

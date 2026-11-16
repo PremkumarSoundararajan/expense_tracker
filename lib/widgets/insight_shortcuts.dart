@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
+import '../app_theme.dart';
 import '../services/financial_baseline_service.dart';
+import 'accent_icon_chip.dart';
 
 /// Two explicit rows keep always-available tools apart from baseline insights.
 class InsightShortcuts extends StatelessWidget {
@@ -26,10 +28,10 @@ class InsightShortcuts extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
     Widget shortcut(
       String label,
       IconData icon,
+      AccentColorPair accent,
       VoidCallback action, {
       bool locked = false,
     }) {
@@ -45,47 +47,63 @@ class InsightShortcuts extends StatelessWidget {
             excludeSemantics: true,
             onTap: onPressed,
             label: locked ? '$label, locked' : label,
-            child: OutlinedButton(
-              key: ValueKey('insight-shortcut-$label'),
-              onPressed: onPressed,
-              style: OutlinedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 6,
-                  vertical: 12,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(minHeight: 116),
+              child: Material(
+                color: Theme.of(context).colorScheme.surfaceContainerLow,
+                elevation: 1,
+                shadowColor: Theme.of(context).colorScheme.shadow.withValues(
+                  alpha: Theme.of(context).brightness == Brightness.light
+                      ? 0.08
+                      : 0.14,
                 ),
-                foregroundColor: locked
-                    ? colors.onSurfaceVariant
-                    : colors.primary,
-                backgroundColor: locked ? colors.surfaceContainerLow : null,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(14),
-                ),
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(icon, size: 26),
-                      if (locked) ...[
-                        const SizedBox(width: 4),
-                        Icon(
-                          Icons.lock_outline,
-                          size: 14,
-                          key: ValueKey('insight-lock-$label'),
+                borderRadius: BorderRadius.circular(16),
+                child: InkWell(
+                  key: ValueKey('insight-shortcut-$label'),
+                  onTap: onPressed,
+                  borderRadius: BorderRadius.circular(16),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 6,
+                      vertical: 10,
+                    ),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            AccentIconChip(
+                              icon: icon,
+                              accent: accent,
+                              size: 40,
+                              iconSize: 22,
+                            ),
+                            if (locked) ...[
+                              const SizedBox(width: 4),
+                              Icon(
+                                Icons.lock_outline,
+                                size: 14,
+                                color: accent.icon,
+                                key: ValueKey('insight-lock-$label'),
+                              ),
+                            ],
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          label,
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
                       ],
-                    ],
+                    ),
                   ),
-                  const SizedBox(height: 8),
-                  Text(
-                    label,
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(fontSize: 12),
-                  ),
-                ],
+                ),
               ),
             ),
           ),
@@ -93,57 +111,77 @@ class InsightShortcuts extends StatelessWidget {
       );
     }
 
-    return Container(
+    return Column(
       key: const ValueKey('insight-shortcuts'),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        border: Border.all(color: colors.outlineVariant),
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          IntrinsicHeight(
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                shortcut('Spending trends', Icons.trending_up, onTrends),
-                const SizedBox(width: 12),
-                shortcut('Spending spots', Icons.storefront_outlined, onSpots),
-                const SizedBox(width: 12),
-                shortcut(
-                  'Suggested budget',
-                  Icons.calculate_outlined,
-                  onBudget,
-                ),
-              ],
-            ),
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Align(
+          alignment: Alignment.centerLeft,
+          child: Text(
+            'Explore',
+            style: Theme.of(context).textTheme.bodySmall
+                ?.copyWith(fontWeight: FontWeight.w700),
           ),
-          const SizedBox(height: 16),
-          IntrinsicHeight(
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                shortcut(
-                  'Savings insights',
-                  Icons.insights_outlined,
-                  onSavings,
-                  locked: !baselineReady,
-                ),
-                const SizedBox(width: 12),
-                shortcut(
-                  'Spending targets',
-                  Icons.flag_outlined,
-                  onTargets,
-                  locked: !baselineReady,
-                ),
-                const SizedBox(width: 12),
-                const Spacer(),
-              ],
+        ),
+        const SizedBox(height: 4),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            shortcut(
+              'Spending trends',
+              Icons.trending_up,
+              context.accentColors.blue,
+              onTrends,
             ),
+            const SizedBox(width: 12),
+            shortcut(
+              'Spending spots',
+              Icons.storefront_outlined,
+              context.accentColors.rose,
+              onSpots,
+            ),
+            const SizedBox(width: 12),
+            shortcut(
+              'Suggested budget',
+              Icons.calculate_outlined,
+              context.accentColors.amber,
+              onBudget,
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: Text(
+            'Based on your baseline',
+            style: Theme.of(context).textTheme.bodySmall
+                ?.copyWith(fontWeight: FontWeight.w700),
           ),
-        ],
-      ),
+        ),
+        const SizedBox(height: 4),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            shortcut(
+              'Savings insights',
+              Icons.insights_outlined,
+              context.accentColors.green,
+              onSavings,
+              locked: !baselineReady,
+            ),
+            const SizedBox(width: 12),
+            shortcut(
+              'Spending targets',
+              Icons.flag_outlined,
+              context.accentColors.violet,
+              onTargets,
+              locked: !baselineReady,
+            ),
+            const SizedBox(width: 12),
+            const Spacer(),
+          ],
+        ),
+      ],
     );
   }
 }

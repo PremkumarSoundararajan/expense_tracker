@@ -3,6 +3,7 @@ import 'support/baseline_navigation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:pocket_ledger/app_theme.dart';
 import 'package:pocket_ledger/models/expense_category.dart';
 import 'package:pocket_ledger/models/transaction.dart';
 import 'package:pocket_ledger/services/merchant_classification_store.dart';
@@ -88,6 +89,8 @@ void main() {
         ];
         await tester.pumpWidget(
           MaterialApp(
+            theme: AppTheme.light,
+            darkTheme: AppTheme.dark,
             home: Scaffold(
               body: SingleChildScrollView(
                 child: MerchantBaselinePanel(
@@ -124,6 +127,19 @@ void main() {
         expect(find.byKey(const ValueKey('na-threshold-toggle')), findsNothing);
         await tester.tap(find.byKey(const ValueKey('baseline-filter-toggle')));
         await tester.pumpAndSettle();
+        Future<void> scrollToMerchant(String label) async {
+          if (width < 900) {
+            await tester.scrollUntilVisible(
+              find.text(label),
+              100,
+              scrollable: find.descendant(
+                of: find.byKey(const ValueKey('mobile-merchant-list')),
+                matching: find.byType(Scrollable),
+              ),
+            );
+          }
+        }
+
         Future<void> choose(String field, String value) async {
           final control = find.byKey(ValueKey('baseline-filter-$field'));
           await tester.ensureVisible(control);
@@ -139,6 +155,7 @@ void main() {
           find.text('Alpha · 2'),
           findsOneWidget,
         ); // Explicit transaction exception.
+        await scrollToMerchant('Beta · 1');
         expect(find.text('Beta · 1'), findsOneWidget);
         expect(find.textContaining('3 of 3 merchants match'), findsOneWidget);
         if (width >= 900) expect(find.text('Gamma · 1'), findsOneWidget);
@@ -147,6 +164,7 @@ void main() {
           find.text('Alpha · 2'),
           findsNothing,
         ); // Conditions must match the same transaction.
+        await scrollToMerchant('Beta · 1');
         expect(find.text('Beta · 1'), findsOneWidget);
         expect(find.text('Gamma · 1'), findsNothing);
         await choose('type', 'Regular');
@@ -161,9 +179,12 @@ void main() {
         await tester.tap(clear);
         await tester.pumpAndSettle();
         await choose('category', 'Household Supplies');
+        await scrollToMerchant('Alpha · 2');
         expect(find.text('Alpha · 2'), findsOneWidget);
+        await scrollToMerchant('Beta · 1');
         expect(find.text('Beta · 1'), findsOneWidget);
         final category = find.byKey(const ValueKey('merchant-category-alpha'));
+        await scrollToMerchant('Alpha · 2');
         await tester.ensureVisible(category);
         await tester.pumpAndSettle();
         await tester.tap(category);
@@ -180,6 +201,7 @@ void main() {
         await tester.tap(save);
         await tester.pumpAndSettle();
         expect(find.text('Alpha · 2'), findsNothing);
+        await scrollToMerchant('Beta · 1');
         expect(find.text('Beta · 1'), findsOneWidget);
         expect(store.index.apply(rows.first).category, 'Home Maintenance');
         expect(tester.takeException(), isNull);

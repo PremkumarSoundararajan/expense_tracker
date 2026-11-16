@@ -1,8 +1,10 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
+import '../app_theme.dart';
 import '../services/merchant_classification_store.dart';
 import '../services/pocket_ledger_web_access.dart';
+import 'accent_icon_chip.dart';
 
 bool shouldSuggestPocketLedgerDesktop({
   required int merchantsNeedingReview,
@@ -80,17 +82,14 @@ class _MerchantDesktopSuggestionState extends State<MerchantDesktopSuggestion> {
           platform: defaultTargetPlatform,
         ))
       return const SizedBox.shrink();
-    return Container(
+    return Card(
       key: const ValueKey('merchant-desktop-suggestion'),
       margin: const EdgeInsets.only(bottom: 10),
-      padding: const EdgeInsets.fromLTRB(12, 8, 4, 8),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceContainerHigh,
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 8, 4, 8),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -128,7 +127,8 @@ class _MerchantDesktopSuggestionState extends State<MerchantDesktopSuggestion> {
             icon: const Icon(Icons.close, size: 18),
             visualDensity: VisualDensity.compact,
           ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -147,7 +147,12 @@ class PocketLedgerWebSettingsTile extends StatelessWidget {
       ? const SizedBox.shrink()
       : ListTile(
           key: const ValueKey('pocket-ledger-web-settings'),
-          leading: const Icon(Icons.desktop_windows_outlined),
+          leading: AccentIconChip(
+            icon: Icons.desktop_windows_outlined,
+            accent: context.accentColors.teal,
+            size: 36,
+            iconSize: 19,
+          ),
           title: const Text('Pocket Ledger Web'),
           subtitle: Text(
             'Access Pocket Ledger from your laptop or desktop.${store.pending.isEmpty ? '' : '\n$_pendingSyncNote'}',

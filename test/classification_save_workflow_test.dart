@@ -5,6 +5,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:pocket_ledger/app_theme.dart';
 import 'package:pocket_ledger/models/expense_category.dart';
 import 'package:pocket_ledger/models/transaction.dart';
 import 'package:pocket_ledger/services/merchant_classification_store.dart';
@@ -33,6 +34,8 @@ void main() {
           ),
         ];
         Widget screen() => MaterialApp(
+          theme: AppTheme.light,
+          darkTheme: AppTheme.dark,
           home: Scaffold(
             body: MerchantBaselinePanel(
               showRemainingInitially: true,
@@ -75,8 +78,14 @@ void main() {
         await choose('type', 'Regular');
         expect(find.text('Alpha · 1'), findsOneWidget);
         expect(find.text('Ready to save'), findsOneWidget);
+        final coverage = tester.widget<Text>(
+          find.byKey(const ValueKey('baseline-coverage-summary')),
+        );
+        expect(coverage.data, contains('Classified 0.0%'));
+        expect(coverage.data, contains('Unclassified 100.0%'));
+        expect(coverage.data, contains(r'$100'));
         expect(
-          find.text('0.0% classified · 100.0% unclassified'),
+          find.text('Available history · 2026-10-01 to 2026-10-01'),
           findsOneWidget,
         );
         expect(find.textContaining('Top 80% done'), findsNothing);
@@ -103,10 +112,12 @@ void main() {
         completion.complete('Saved');
         await tester.pumpAndSettle();
         expect(find.text('Alpha · 1'), findsNothing);
-        expect(
-          find.text('100.0% classified · 0.0% unclassified'),
-          findsOneWidget,
+        final savedCoverage = tester.widget<Text>(
+          find.byKey(const ValueKey('baseline-coverage-summary')),
         );
+        expect(savedCoverage.data, contains('Classified 100.0%'));
+        expect(savedCoverage.data, contains('Unclassified 0.0%'));
+        expect(savedCoverage.data, contains(r'$100'));
         expect(store.index.apply(rows.single).expenseType, ExpenseType.regular);
         await tester.tap(find.byKey(const ValueKey('baseline-classified')));
         await tester.pumpAndSettle();

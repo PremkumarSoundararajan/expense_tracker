@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pocket_ledger/app_theme.dart';
 import 'package:pocket_ledger/models/expense_category.dart';
 import 'package:pocket_ledger/models/transaction.dart';
 import 'package:pocket_ledger/widgets/expense_category_selector.dart';
@@ -44,6 +45,8 @@ void main() {
       addTearDown(tester.view.resetDevicePixelRatio);
       await tester.pumpWidget(
         MaterialApp(
+          theme: AppTheme.light,
+          darkTheme: AppTheme.dark,
           builder: (context, child) => MediaQuery(
             data: MediaQuery.of(context).copyWith(
               textScaler: TextScaler.linear(1.6),
@@ -75,6 +78,8 @@ void main() {
       String? chosen;
       await tester.pumpWidget(
         MaterialApp(
+          theme: AppTheme.light,
+          darkTheme: AppTheme.dark,
           home: Builder(
             builder: (context) => Scaffold(
               body: Column(
@@ -156,6 +161,8 @@ void main() {
     String? chosen;
     await tester.pumpWidget(
       MaterialApp(
+        theme: AppTheme.light,
+        darkTheme: AppTheme.dark,
         home: Scaffold(
           body: ExpenseCategorySelector(
             selectedCategory: 'Groceries',
@@ -183,6 +190,8 @@ void main() {
     String selected = '';
     await tester.pumpWidget(
       MaterialApp(
+        theme: AppTheme.light,
+        darkTheme: AppTheme.dark,
         home: Scaffold(
           body: ExpenseCategorySelector(
             selectedCategory: 'Groceries',
@@ -238,6 +247,8 @@ void main() {
     ];
     await tester.pumpWidget(
       MaterialApp(
+        theme: AppTheme.light,
+        darkTheme: AppTheme.dark,
         home: Scaffold(
           body: ExpenseCategorySelector(
             selectedCategory: 'Groceries',
@@ -260,6 +271,8 @@ void main() {
   ) async {
     await tester.pumpWidget(
       MaterialApp(
+        theme: AppTheme.light,
+        darkTheme: AppTheme.dark,
         home: Scaffold(
           body: ExpenseCategorySelector(
             selectedCategory: 'Food / Household',

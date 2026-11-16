@@ -6,7 +6,9 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:pocket_ledger/app_theme.dart';
 import 'package:pocket_ledger/services/classified_spending_breakdown_service.dart';
+import 'package:pocket_ledger/models/transaction.dart';
 import 'package:pocket_ledger/widgets/spending_breakdown.dart';
 import 'package:pocket_ledger/widgets/spending_summary_widget.dart';
 
@@ -160,4 +162,59 @@ void main() {
       );
     },
   );
+
+  for (final dark in [false, true]) {
+    testWidgets(
+      'spending trends separate current and historical periods in dark=$dark',
+      (tester) async {
+        tester.view.physicalSize = Size(dark ? 390 : 320, 1000);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        SharedPreferences.setMockInitialValues({});
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: dark ? AppTheme.dark : AppTheme.light,
+            home: Scaffold(
+              body: SingleChildScrollView(
+                child: SpendingSummaryWidget(
+                  transactions: [
+                    Transaction(
+                      date: DateTime(2025, 1, 1),
+                      amount: 100,
+                      category: 'Food',
+                      expenseType: ExpenseType.regular,
+                    ),
+                    Transaction(
+                      date: DateTime(2025, 2, 1),
+                      amount: 300,
+                      category: 'Food',
+                      expenseType: ExpenseType.regular,
+                    ),
+                    Transaction(
+                      date: DateTime(2025, 3, 10),
+                      amount: 500,
+                      category: 'Food',
+                      expenseType: ExpenseType.regular,
+                    ),
+                  ],
+                  currencySymbol: r'$',
+                  now: DateTime(2025, 3, 15),
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(find.text('Month to date · Regular'), findsOneWidget);
+        expect(find.text(r'$500'), findsOneWidget);
+        expect(find.text('Monthly average · Regular'), findsOneWidget);
+        expect(find.text(r'$200'), findsOneWidget);
+        expect(find.text('Average of 2 completed months'), findsOneWidget);
+        expect(find.textContaining('Month to date · through'), findsOneWidget);
+        expect(find.text('Regular monthly average'), findsOneWidget);
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
 }

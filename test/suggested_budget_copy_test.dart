@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pocket_ledger/app_theme.dart';
 import 'package:pocket_ledger/services/suggested_budget_service.dart';
 import 'package:pocket_ledger/widgets/suggested_budget_sheet.dart';
 
@@ -30,6 +31,8 @@ void main() {
         double? applied;
         await tester.pumpWidget(
           MaterialApp(
+            theme: AppTheme.light,
+            darkTheme: AppTheme.dark,
             home: Scaffold(
               body: Builder(
                 builder: (context) => TextButton(
@@ -70,6 +73,8 @@ void main() {
     (tester) async {
       await tester.pumpWidget(
         MaterialApp(
+          theme: AppTheme.light,
+          darkTheme: AppTheme.dark,
           home: Scaffold(
             body: SuggestedBudgetBreakdown(
               suggestion: suggestion(months: 2, coverage: null),

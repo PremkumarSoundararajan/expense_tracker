@@ -292,16 +292,14 @@ class _SpendingReductionPlannerScreenState
                 if (_view == SpendingReductionView.category &&
                     _analysis.hasUncategorizedSpending)
                   SliverToBoxAdapter(
-                    child: Container(
+                    child: Card(
                       key: const ValueKey('uncategorized-category-warning'),
                       margin: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(
-                        color: colors.tertiaryContainer,
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: const Text(
-                        'Some adjustable spending has no expense category yet. Merchant planning remains available.',
+                      child: const Padding(
+                        padding: EdgeInsets.all(10),
+                        child: Text(
+                          'Some adjustable spending has no expense category yet. Merchant planning remains available.',
+                        ),
                       ),
                     ),
                   ),
@@ -348,7 +346,6 @@ class _SpendingReductionPlannerScreenState
   Widget _summaryCard(SpendingReductionPlan plan, ColorScheme colors) => Card(
     key: const ValueKey('reduction-plan-summary'),
     margin: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-    color: colors.primaryContainer,
     child: Padding(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       child: Row(

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import 'package:pocket_ledger/app_theme.dart';
 import 'package:pocket_ledger/main.dart';
 import 'package:pocket_ledger/models/transaction.dart';
 import 'package:pocket_ledger/services/budget_comparison.dart';
@@ -73,9 +74,7 @@ void main() {
               .saveCached(ledger);
           await tester.pumpWidget(
             MaterialApp(
-              theme: ThemeData(
-                brightness: width == 390 ? Brightness.dark : Brightness.light,
-              ),
+              theme: width == 390 ? AppTheme.dark : AppTheme.light,
               builder: (context, child) => MediaQuery(
                 data: MediaQuery.of(context)
                     .copyWith(textScaler: TextScaler.linear(scale)),
@@ -101,6 +100,7 @@ void main() {
           final pill = find.byKey(const ValueKey('daily-allowance-pill'));
           final month = find.byKey(const ValueKey('home-month-summary'));
           expect(find.text(label), findsOneWidget);
+          expect(tester.getSize(pill).height, greaterThanOrEqualTo(48));
           expect(find.descendant(of: month, matching: pill), findsNothing);
           final todayCard = find
               .ancestor(

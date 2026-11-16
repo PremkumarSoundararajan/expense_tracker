@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:pocket_ledger/app_theme.dart';
 import 'package:pocket_ledger/main.dart';
 import 'package:pocket_ledger/models/transaction.dart';
 import 'package:pocket_ledger/services/local_transaction_store.dart';
@@ -43,12 +44,7 @@ Future<void> openExpenses(
       );
   await tester.pumpWidget(
     MaterialApp(
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF1B4D3E),
-          brightness: dark ? Brightness.dark : Brightness.light,
-        ),
-      ),
+      theme: dark ? AppTheme.dark : AppTheme.light,
       home: DashboardScreen(
         account: _Account(),
         isDarkMode: dark,
@@ -92,6 +88,13 @@ void main() {
         expect(find.text('Atmos Energy'), findsOneWidget);
         expect(find.text('buying iPhone'), findsOneWidget);
         expect(find.text(raw), findsNothing);
+        final expenseRow = find.byKey(const ValueKey('expense-row-bank'));
+        expect(expenseRow, findsOneWidget);
+        expect(
+          find.ancestor(of: expenseRow, matching: find.byType(Card)),
+          findsNothing,
+        );
+        expect(tester.getSize(expenseRow).height, greaterThanOrEqualTo(48));
         await tester.tap(find.text('Atmos Energy'));
         await tester.pumpAndSettle();
         expect(find.text('Edit expense'), findsOneWidget);
@@ -187,7 +190,7 @@ void main() {
           expect(find.text('Import Statements'), findsOneWidget);
           expect(
             tester.getSize(button).width,
-            closeTo(tester.getSize(panel).width - 34, .1),
+            closeTo(tester.getSize(panel).width - 32, .1),
           );
           expect(tester.getSize(button).height, greaterThanOrEqualTo(50));
           expect(

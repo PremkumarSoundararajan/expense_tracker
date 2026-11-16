@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:pocket_ledger/app_theme.dart';
 import 'package:pocket_ledger/models/expense_category.dart';
 import 'package:pocket_ledger/models/transaction.dart';
 import 'package:pocket_ledger/services/merchant_classification_store.dart';
@@ -79,6 +80,8 @@ void main() {
       var saves = 0;
       await tester.pumpWidget(
         MaterialApp(
+          theme: AppTheme.light,
+          darkTheme: AppTheme.dark,
           home: Scaffold(
             body: SingleChildScrollView(
               child: MerchantBaselinePanel(
@@ -146,6 +149,8 @@ void main() {
       ];
       var writes = 0;
       Widget screen() => MaterialApp(
+        theme: AppTheme.light,
+        darkTheme: AppTheme.dark,
         home: ExpenseCategoryManagementScreen(
           categories: saved,
           mappings: const [
@@ -229,6 +234,8 @@ void main() {
       String? chosen;
       await tester.pumpWidget(
         MaterialApp(
+          theme: AppTheme.light,
+          darkTheme: AppTheme.dark,
           home: Scaffold(
             body: ExpenseCategorySelector(
               selectedCategory: '',
@@ -270,6 +277,8 @@ void main() {
         };
         await tester.pumpWidget(
           MaterialApp(
+            theme: AppTheme.light,
+            darkTheme: AppTheme.dark,
             home: FinancialBaselineScreen(
               insightsOnly: true,
               transactions: rows,
@@ -313,6 +322,8 @@ void main() {
       addTearDown(tester.view.resetDevicePixelRatio);
       await tester.pumpWidget(
         MaterialApp(
+          theme: AppTheme.light,
+          darkTheme: AppTheme.dark,
           home: Scaffold(
             body: SingleChildScrollView(
               child: MerchantBaselinePanel(

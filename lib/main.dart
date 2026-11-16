@@ -16,6 +16,9 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:extension_google_sign_in_as_googleapis_auth/extension_google_sign_in_as_googleapis_auth.dart';
 
+import 'app_theme.dart';
+import 'widgets/accent_icon_chip.dart';
+import 'widgets/app_linear_progress_indicator.dart';
 import 'services/spending_target_store.dart';
 import 'services/spending_target_service.dart';
 import 'widgets/spending_targets_screen.dart';
@@ -62,6 +65,7 @@ import 'widgets/daily_allowance_dialog.dart';
 import 'widgets/monthly_budget_target_dialog.dart';
 import 'widgets/spending_summary_widget.dart';
 import 'widgets/suggested_budget_sheet.dart';
+import 'widgets/suggested_budget_unavailable_dialog.dart';
 import 'widgets/statement_review_dialog.dart';
 import 'widgets/statement_import_complete_dialog.dart';
 import 'utils/currency_format.dart';
@@ -130,29 +134,14 @@ class _PocketLedgerAppState extends State<PocketLedgerApp> {
     return MaterialApp(
       title: 'Pocket Ledger',
       debugShowCheckedModeBanner: false,
-      theme: _buildTheme(Brightness.light),
-      darkTheme: _buildTheme(Brightness.dark),
+      theme: AppTheme.light,
+      darkTheme: AppTheme.dark,
       themeMode: _isDarkMode ? ThemeMode.dark : ThemeMode.light,
       home: AuthGate(
         isDarkMode: _isDarkMode,
         onDarkModeChanged: _setDarkMode,
         googleSignIn: widget.googleSignIn,
       ),
-    );
-  }
-
-  ThemeData _buildTheme(Brightness brightness) {
-    final isLight = brightness == Brightness.light;
-    final colorScheme = ColorScheme.fromSeed(
-      seedColor: const Color(0xFF1B4D3E),
-      primary: isLight ? const Color(0xFF1B4D3E) : const Color(0xFF9DD7C2),
-      brightness: brightness,
-      surface: isLight ? const Color(0xFFF7F9F8) : null,
-    );
-    return ThemeData(
-      useMaterial3: true,
-      colorScheme: colorScheme,
-      scaffoldBackgroundColor: colorScheme.surface,
     );
   }
 }
@@ -261,7 +250,11 @@ class _AuthGateState extends State<AuthGate> {
                 Navigator.pop(dialogContext, email);
               } else {
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Enter your full Google account email address.')),
+                  const SnackBar(
+                    content: Text(
+                      'Enter your full Google account email address.',
+                    ),
+                  ),
                 );
               }
             },
@@ -273,18 +266,21 @@ class _AuthGateState extends State<AuthGate> {
     if (!mounted || selected == null) return;
     setState(() => _isLoading = true);
     try {
-      final completed = await const MethodChannel('pocket_ledger/google_account')
-          .invokeMethod<bool>('signInWithEmail', {'email': selected});
+      final completed = await const MethodChannel(
+        'pocket_ledger/google_account',
+      ).invokeMethod<bool>('signInWithEmail', {'email': selected});
       if (completed == true) {
         final account = await _signIn.signInSilently(suppressErrors: false);
-        if (account == null) throw StateError('Google sign-in could not be restored. Please try again.');
+        if (account == null)
+          throw StateError(
+            'Google sign-in could not be restored. Please try again.',
+          );
         if (mounted) setState(() => _currentUser = account);
       }
     } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Sign in failed: $error')),
-        );
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Sign in failed: $error')));
       }
     } finally {
       if (mounted) setState(() => _isLoading = false);
@@ -332,13 +328,13 @@ class _AuthGateState extends State<AuthGate> {
                 Container(
                   padding: const EdgeInsets.all(20),
                   decoration: BoxDecoration(
-                    color: const Color(0xFF1B4D3E).withValues(alpha: 0.1),
+                    color: Theme.of(context).colorScheme.primaryContainer,
                     borderRadius: BorderRadius.circular(24),
                   ),
-                  child: const Icon(
+                  child: Icon(
                     Icons.account_balance_wallet_rounded,
                     size: 64,
-                    color: Color(0xFF1B4D3E),
+                    color: Theme.of(context).colorScheme.primary,
                   ),
                 ),
                 const SizedBox(height: 24),
@@ -349,10 +345,12 @@ class _AuthGateState extends State<AuthGate> {
                 const SizedBox(height: 4),
                 const _BrandTagline(textAlign: TextAlign.center),
                 const SizedBox(height: 8),
-                const Text(
+                Text(
                   'Track expenses privately in your personal Google Drive',
                   textAlign: TextAlign.center,
-                  style: TextStyle(color: Colors.grey),
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
                 ),
                 const SizedBox(height: 48),
                 ElevatedButton.icon(
@@ -360,8 +358,8 @@ class _AuthGateState extends State<AuthGate> {
                   icon: const Icon(Icons.login),
                   label: const Text('Sign in with Google'),
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF1B4D3E),
-                    foregroundColor: Colors.white,
+                    backgroundColor: Theme.of(context).colorScheme.primary,
+                    foregroundColor: Theme.of(context).colorScheme.onPrimary,
                     minimumSize: const Size(double.infinity, 54),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(16),
@@ -429,7 +427,9 @@ class _DashboardScreenState extends State<DashboardScreen>
 
   Future<T> _ledgerOperation<T>(Future<T> Function() operation) async {
     if (_accountDeletionStarted || _showDeletionRecovery) {
-      throw StateError('Account deletion is in progress. Expense sync is disabled.');
+      throw StateError(
+        'Account deletion is in progress. Expense sync is disabled.',
+      );
     }
     _activeLedgerOperations++;
     try {
@@ -438,6 +438,7 @@ class _DashboardScreenState extends State<DashboardScreen>
       _activeLedgerOperations--;
     }
   }
+
   bool _isWorkerSyncing = false;
   String? _workerSyncStatus;
   // True until the first Google Sheets sync finishes (or is blocked), so the
@@ -470,6 +471,7 @@ class _DashboardScreenState extends State<DashboardScreen>
       fallback: transaction.category,
     );
   }
+
   late final MerchantClassificationStore _merchantStore =
       MerchantClassificationStore(widget.account.email);
   List<FinancialBaselineMapping> _baselineMappings = [];
@@ -480,15 +482,19 @@ class _DashboardScreenState extends State<DashboardScreen>
   final _baselineSectionKey = GlobalKey();
 
   FinancialBaselineSummary get _baselineShortcutSummary {
-    if (_shortcutSummary == null || !identical(_shortcutTransactions, _transactions) ||
+    if (_shortcutSummary == null ||
+        !identical(_shortcutTransactions, _transactions) ||
         !identical(_shortcutMappings, _baselineMappings)) {
       _shortcutTransactions = _transactions;
       _shortcutMappings = _baselineMappings;
       _shortcutSummary = _shortcutBaselineService.summarize(
-        transactions: _transactions, mappings: _baselineMappings);
+        transactions: _transactions,
+        mappings: _baselineMappings,
+      );
     }
     return _shortcutSummary!;
   }
+
   int _selectedTab = 0;
   Timer? _calendarRefreshTimer;
   final FinancialBaselineSheetsSyncService _baselineSheetsSyncService =
@@ -592,9 +598,11 @@ class _DashboardScreenState extends State<DashboardScreen>
         _calendarRefreshTimer?.cancel();
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (mounted) {
-            Navigator.of(context).push<void>(MaterialPageRoute(
-              builder: (_) => _accountDeletionScreen(pending: true),
-            ));
+            Navigator.of(context).push<void>(
+              MaterialPageRoute(
+                builder: (_) => _accountDeletionScreen(pending: true),
+              ),
+            );
           }
         });
         return;
@@ -687,7 +695,8 @@ class _DashboardScreenState extends State<DashboardScreen>
       }
     } finally {
       if (mounted) setState(() => _isInitialSync = false);
-      if (!_showDeletionRecovery && mounted &&
+      if (!_showDeletionRecovery &&
+          mounted &&
           Uri.base.queryParameters['deleteAccount'] == '1') {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (mounted) _openAccountDeletion();
@@ -696,55 +705,67 @@ class _DashboardScreenState extends State<DashboardScreen>
     }
   }
 
-  Widget _accountDeletionScreen({bool pending = false}) => AccountDeletionScreen(
-    email: widget.account.email,
-    pending: pending,
-    signOut: () async { await _googleSignIn.signOut(); },
-    delete: (onProgress) async {
-      if (_activeLedgerOperations > 0 || _isSaving || _isWorkerSyncing) {
-        throw StateError('Wait for the current save or sync to finish, then retry.');
-      }
-      _accountDeletionStarted = true;
-      _calendarRefreshTimer?.cancel();
-      final client = http.Client();
-      try {
-        await AccountDeletionService(
-          accountEmail: widget.account.email,
-          client: client,
-          accessToken: () async {
-            final token = (await widget.account.authentication).accessToken;
-            if (token == null || token.isEmpty) {
-              throw StateError('Sign out and sign in again to finish deletion.');
-            }
-            return token;
-          },
-          cancelReminders: () async {
-            if (!kIsWeb) {
-              await _dailyReminderService.cancelAllForAccountDeletion();
-            }
-          },
-          signOut: () async {
-            _drivePermissionService.clearCachedPermissions();
-            await _googleSignIn.signOut();
-          },
-        ).delete(spreadsheetIds: {
-          ?_spreadsheetId,
-          ?_workerSpreadsheetId,
-        }, onProgress: onProgress);
-      } finally {
-        client.close();
-      }
-    },
-  );
+  Widget _accountDeletionScreen({bool pending = false}) =>
+      AccountDeletionScreen(
+        email: widget.account.email,
+        pending: pending,
+        signOut: () async {
+          await _googleSignIn.signOut();
+        },
+        delete: (onProgress) async {
+          if (_activeLedgerOperations > 0 || _isSaving || _isWorkerSyncing) {
+            throw StateError(
+              'Wait for the current save or sync to finish, then retry.',
+            );
+          }
+          _accountDeletionStarted = true;
+          _calendarRefreshTimer?.cancel();
+          final client = http.Client();
+          try {
+            await AccountDeletionService(
+              accountEmail: widget.account.email,
+              client: client,
+              accessToken: () async {
+                final token = (await widget.account.authentication).accessToken;
+                if (token == null || token.isEmpty) {
+                  throw StateError(
+                    'Sign out and sign in again to finish deletion.',
+                  );
+                }
+                return token;
+              },
+              cancelReminders: () async {
+                if (!kIsWeb) {
+                  await _dailyReminderService.cancelAllForAccountDeletion();
+                }
+              },
+              signOut: () async {
+                _drivePermissionService.clearCachedPermissions();
+                await _googleSignIn.signOut();
+              },
+            ).delete(
+              spreadsheetIds: {?_spreadsheetId, ?_workerSpreadsheetId},
+              onProgress: onProgress,
+            );
+          } finally {
+            client.close();
+          }
+        },
+      );
 
   void _openAccountDeletion() {
-    if (_isInitialSync || _isSaving || _isWorkerSyncing || _activeLedgerOperations > 0) {
-      _showMessage('Wait for the current save or sync to finish, then try again.');
+    if (_isInitialSync ||
+        _isSaving ||
+        _isWorkerSyncing ||
+        _activeLedgerOperations > 0) {
+      _showMessage(
+        'Wait for the current save or sync to finish, then try again.',
+      );
       return;
     }
-    Navigator.of(context).push<void>(MaterialPageRoute(
-      builder: (_) => _accountDeletionScreen(),
-    ));
+    Navigator.of(
+      context,
+    ).push<void>(MaterialPageRoute(builder: (_) => _accountDeletionScreen()));
   }
 
   /// Web sign-in can restore the account a moment before an access token is
@@ -837,7 +858,9 @@ class _DashboardScreenState extends State<DashboardScreen>
     return _ledgerOperation(() => _saveExpenseCategoriesInternal(categories));
   }
 
-  Future<void> _saveExpenseCategoriesInternal(List<ExpenseCategory> categories) async {
+  Future<void> _saveExpenseCategoriesInternal(
+    List<ExpenseCategory> categories,
+  ) async {
     final oldById = {
       for (final category in _expenseCategories) category.id: category,
     };
@@ -911,7 +934,9 @@ class _DashboardScreenState extends State<DashboardScreen>
     return _ledgerOperation(() => _saveExpenseMappingsInternal(mappings));
   }
 
-  Future<void> _saveExpenseMappingsInternal(List<ExpenseCategoryMapping> mappings) async {
+  Future<void> _saveExpenseMappingsInternal(
+    List<ExpenseCategoryMapping> mappings,
+  ) async {
     _categoryMappings = mappings;
     await _expenseCategoryStore.save(
       categories: _expenseCategories,
@@ -1400,7 +1425,9 @@ class _DashboardScreenState extends State<DashboardScreen>
     return _ledgerOperation(() => _saveBaselineMappingsInternal(mappings));
   }
 
-  Future<String?> _saveBaselineMappingsInternal(List<FinancialBaselineMapping> mappings) async {
+  Future<String?> _saveBaselineMappingsInternal(
+    List<FinancialBaselineMapping> mappings,
+  ) async {
     final oldByKey = {
       for (final mapping in _baselineMappings)
         mapping.merchantFingerprint.trim().toLowerCase().replaceAll(
@@ -1516,26 +1543,40 @@ class _DashboardScreenState extends State<DashboardScreen>
   Future<void> _explainInsightLock(String feature) async {
     final summary = _baselineShortcutSummary;
     final coverage = (summary.classifiedPercentage * 10).floor() / 10;
-    final review = await showDialog<bool>(context: context,
+    final review = await showDialog<bool>(
+      context: context,
       builder: (context) => AlertDialog(
         title: Text('Unlock $feature'),
-        content: Text('Classify at least ${baselineInsightMinimumCoverage.toStringAsFixed(0)}% of spending as Essential or Potentially Flexible in Financial Baseline.\n\n'
-          '${coverage.toStringAsFixed(1)}% is currently classified by Essentiality. Save your choices to unlock these insights.'),
+        content: Text(
+          'Classify at least ${baselineInsightMinimumCoverage.toStringAsFixed(0)}% of spending as Essential or Potentially Flexible in Financial Baseline.\n\n'
+          '${coverage.toStringAsFixed(1)}% is currently classified by Essentiality. Save your choices to unlock these insights.',
+        ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Not now')),
-          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Classify expenses')),
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Not now'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Classify expenses'),
+          ),
         ],
-      ));
+      ),
+    );
     if (review != true || !mounted) return;
     _reviewRemainingClassification(unknownOnly: false);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final section = _baselineSectionKey.currentContext;
       if (section != null) {
-        Scrollable.ensureVisible(section,
-          duration: const Duration(milliseconds: 250), alignment: 0);
+        Scrollable.ensureVisible(
+          section,
+          duration: const Duration(milliseconds: 250),
+          alignment: 0,
+        );
       }
     });
   }
+
   void _reviewRemainingClassification({bool unknownOnly = true}) {
     final dashboard = ModalRoute.of(context);
     if (dashboard != null) {
@@ -1565,10 +1606,14 @@ class _DashboardScreenState extends State<DashboardScreen>
   Future<String> _saveMerchantClassifications(
     List<Map<String, dynamic>> changes,
   ) async {
-    return _ledgerOperation(() => _saveMerchantClassificationsInternal(changes));
+    return _ledgerOperation(
+      () => _saveMerchantClassificationsInternal(changes),
+    );
   }
 
-  Future<String> _saveMerchantClassificationsInternal(List<Map<String, dynamic>> changes) async {
+  Future<String> _saveMerchantClassificationsInternal(
+    List<Map<String, dynamic>> changes,
+  ) async {
     await _merchantStore.save(changes);
     final updated = _transactions
         .map(_merchantStore.index.apply)
@@ -1728,20 +1773,29 @@ class _DashboardScreenState extends State<DashboardScreen>
     String money(double n) => formatFullCurrency(n, _currency);
     return [
       for (final a in awareness.where((a) => a.after.progress >= .8))
-        Padding(
-          padding: const EdgeInsets.symmetric(vertical: 4),
-          child: Text(
-            a.crossed100
-                ? (a.after.remaining < 0
-                      ? 'This expense would bring your ${a.after.target.name} spending to ${money(a.after.actual)}, which is ${money(-a.after.remaining)} above your ${money(a.after.target.monthlyAmount)} monthly target.'
-                      : 'This expense would reach your ${money(a.after.target.monthlyAmount)} monthly ${a.after.target.name} target.')
-                : a.crossed80
-                ? "You're approaching your monthly spending target. ${money(a.after.actual)} of your ${money(a.after.target.monthlyAmount)} ${a.after.target.name} target would be used after this expense."
-                : '${a.after.target.name}: ${money(a.after.actual)} of ${money(a.after.target.monthlyAmount)} used after this expense.',
-            style: a.prominent
-                ? Theme.of(context).textTheme.bodyMedium
-                : Theme.of(context).textTheme.bodySmall,
-          ),
+        Builder(
+          builder: (context) {
+            final statusColor = a.after.status == TargetStatus.over
+                ? Theme.of(context).colorScheme.error
+                : context.semanticColors.warning;
+            return Padding(
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              child: Text(
+                a.crossed100
+                    ? (a.after.remaining < 0
+                          ? 'This expense would bring your ${a.after.target.name} spending to ${money(a.after.actual)}, which is ${money(-a.after.remaining)} above your ${money(a.after.target.monthlyAmount)} monthly target.'
+                          : 'This expense would reach your ${money(a.after.target.monthlyAmount)} monthly ${a.after.target.name} target.')
+                    : a.crossed80
+                    ? "You're approaching your monthly spending target. ${money(a.after.actual)} of your ${money(a.after.target.monthlyAmount)} ${a.after.target.name} target would be used after this expense."
+                    : '${a.after.target.name}: ${money(a.after.actual)} of ${money(a.after.target.monthlyAmount)} used after this expense.',
+                style:
+                    (a.prominent
+                            ? Theme.of(context).textTheme.bodyMedium
+                            : Theme.of(context).textTheme.bodySmall)
+                        ?.copyWith(color: statusColor),
+              ),
+            );
+          },
         ),
       if (awareness.isNotEmpty && !_targetHistoryComplete)
         const Text(
@@ -2368,10 +2422,24 @@ class _DashboardScreenState extends State<DashboardScreen>
   }
 
   Future<void> _showSuggestedBudget() async {
-    final suggestion = _suggestedBudgetService.suggest(
+    final assessment = _suggestedBudgetService.assess(
       transactions: _transactions,
     );
-    if (suggestion == null) return;
+    final suggestion = assessment.suggestion;
+    if (suggestion == null) {
+      final next = await showDialog<SuggestedBudgetNextStep>(
+        context: context,
+        builder: (_) =>
+            SuggestedBudgetUnavailableDialog(assessment: assessment),
+      );
+      if (!mounted) return;
+      if (next == SuggestedBudgetNextStep.classify) {
+        _reviewRemainingClassification();
+      } else if (next == SuggestedBudgetNextStep.manual) {
+        await _showMonthlyTargetDialog();
+      }
+      return;
+    }
     final applied = await showSuggestedBudgetSheet(
       context: context,
       suggestion: suggestion,
@@ -2646,15 +2714,7 @@ class _DashboardScreenState extends State<DashboardScreen>
   }) {
     final activeMonth = targetMonth ?? _heroMonth;
     final now = DateTime.now();
-    final sheetTheme = ThemeData(
-      useMaterial3: true,
-      colorScheme: ColorScheme.fromSeed(
-        seedColor: const Color(0xFF9DD7C2),
-        primary: const Color(0xFF9DD7C2),
-        surface: const Color(0xFF121715),
-        brightness: Brightness.dark,
-      ),
-    );
+    final sheetTheme = Theme.of(context);
     bool inPeriod(Transaction transaction) {
       final date = transaction.date;
       return switch (period) {
@@ -2904,15 +2964,7 @@ class _DashboardScreenState extends State<DashboardScreen>
     final sortedEntries = totals.entries.toList()
       ..sort((a, b) => b.value.compareTo(a.value));
     final maxVal = sortedEntries.isEmpty ? 1.0 : sortedEntries.first.value;
-    final sheetTheme = ThemeData(
-      useMaterial3: true,
-      colorScheme: ColorScheme.fromSeed(
-        seedColor: const Color(0xFF9DD7C2),
-        primary: const Color(0xFF9DD7C2),
-        surface: const Color(0xFF121715),
-        brightness: Brightness.dark,
-      ),
-    );
+    final sheetTheme = Theme.of(context);
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -2999,15 +3051,7 @@ class _DashboardScreenState extends State<DashboardScreen>
     // here would discard their transactions.
     final categoryTransactions = transactions.toList()
       ..sort((a, b) => b.date.compareTo(a.date));
-    final sheetTheme = ThemeData(
-      useMaterial3: true,
-      colorScheme: ColorScheme.fromSeed(
-        seedColor: const Color(0xFF9DD7C2),
-        primary: const Color(0xFF9DD7C2),
-        surface: const Color(0xFF121715),
-        brightness: Brightness.dark,
-      ),
-    );
+    final sheetTheme = Theme.of(context);
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -3060,51 +3104,58 @@ class _DashboardScreenState extends State<DashboardScreen>
                     itemBuilder: (context, index) {
                       final transaction = categoryTransactions[index];
                       final note = transaction.description.trim();
-                      return Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 14,
-                          vertical: 12,
-                        ),
-                        decoration: BoxDecoration(
-                          color: Theme.of(context)
-                              .colorScheme
-                              .surfaceContainerHighest,
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                        child: Row(
-                          children: [
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    note.isEmpty ? 'No note' : note,
-                                    maxLines: 2,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: Theme.of(context).textTheme.bodyLarge
-                                        ?.copyWith(fontWeight: FontWeight.w600),
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    MaterialLocalizations.of(context)
-                                        .formatMediumDate(transaction.date),
-                                    style: Theme.of(context).textTheme.bodySmall
-                                        ?.copyWith(
-                                          color: Theme.of(context)
-                                              .colorScheme
-                                              .onSurfaceVariant,
-                                        ),
-                                  ),
-                                ],
+                      return Card(
+                        margin: EdgeInsets.zero,
+                        color: Theme.of(context).colorScheme.surfaceContainer,
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 12,
+                          ),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      note.isEmpty ? 'No note' : note,
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .bodyLarge
+                                          ?.copyWith(
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      MaterialLocalizations.of(context)
+                                          .formatMediumDate(transaction.date),
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .bodySmall
+                                          ?.copyWith(
+                                            color: Theme.of(context)
+                                                .colorScheme
+                                                .onSurfaceVariant,
+                                          ),
+                                    ),
+                                  ],
+                                ),
                               ),
-                            ),
-                            const SizedBox(width: 12),
-                            Text(
-                              formatFullCurrency(transaction.amount, _currency),
-                              style: Theme.of(context).textTheme.titleSmall
-                                  ?.copyWith(fontWeight: FontWeight.bold),
-                            ),
-                          ],
+                              const SizedBox(width: 12),
+                              Text(
+                                formatFullCurrency(
+                                  transaction.amount,
+                                  _currency,
+                                ),
+                                style: Theme.of(context).textTheme.titleSmall
+                                    ?.copyWith(fontWeight: FontWeight.bold),
+                              ),
+                            ],
+                          ),
                         ),
                       );
                     },
@@ -3121,7 +3172,9 @@ class _DashboardScreenState extends State<DashboardScreen>
   @override
   Widget build(BuildContext context) {
     if (_showDeletionRecovery) {
-      return const Scaffold(body: Center(child: Text('Finish account deletion to continue.')));
+      return const Scaffold(
+        body: Center(child: Text('Finish account deletion to continue.')),
+      );
     }
     final monthlyRolloverRecap = _selectedTab == 0
         ? MonthlyRolloverRecap.calculate(
@@ -3164,9 +3217,15 @@ class _DashboardScreenState extends State<DashboardScreen>
     final today = DateTime.now();
     final currentMonthSpending = isSameMonth(_heroMonth, today)
         ? monthSpending
-        : BudgetSpending.fromTransactions(_transactions.where((t) =>
-            t.date.year == today.year && t.date.month == today.month));
-    final dailyAllowance = currentMonthSpending.dailyAllowance(_monthlyTarget, now: today);
+        : BudgetSpending.fromTransactions(
+            _transactions.where(
+              (t) => t.date.year == today.year && t.date.month == today.month,
+            ),
+          );
+    final dailyAllowance = currentMonthSpending.dailyAllowance(
+      _monthlyTarget,
+      now: today,
+    );
     // Responsive layout: one column on phones / narrow windows, two columns
     // (dashboard + trends | add-expense form) on wide web or desktop windows.
     final screenWidth = MediaQuery.sizeOf(context).width;
@@ -3183,104 +3242,123 @@ class _DashboardScreenState extends State<DashboardScreen>
             if (_needsDriveAccess)
               _DriveAccessBanner(onConnect: _connectGoogleDrive)
             else if (_isInitialSync && _transactions.isEmpty) ...[
-              const LinearProgressIndicator(),
+              const AppLinearProgressIndicator(),
               const SizedBox(height: 12),
             ],
-            Container(
+            Padding(
               key: const ValueKey('home-spending-summary'),
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.surfaceContainerHighest
-                    .withValues(alpha: .3),
-                border: Border.all(
-                  color: Theme.of(context).colorScheme.outlineVariant,
-                ),
-                borderRadius: BorderRadius.circular(24),
-              ),
+              padding: const EdgeInsets.symmetric(vertical: 8),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   Card(
                     key: const ValueKey('home-month-summary'),
                     margin: EdgeInsets.zero,
-                    child: MonthlyBudgetCard(
-                      spending: monthSpending,
-                      currentSpent: monthSpending.total,
-                      currencySymbol: _currency,
-                      monthlyTarget: _monthlyTarget,
-                      onReviewUnclassified: _reviewMonthUnclassified,
-                      rolloverRecap: monthlyRolloverRecap,
-                      selectedMonth: _heroMonth,
-                      availableMonths: availableLedgerMonths(_transactions, limit: null),
-                      onMonthSelected: _selectHeroMonth,
-                      onCalendarPressed: () => _showCategoryBreakdown(
-                        formatMonthHeading(_heroMonth, now: DateTime.now()), 'month', targetMonth: _heroMonth),
-                      onSetTargetPressed: _showMonthlyTargetDialog,
+                    clipBehavior: Clip.antiAlias,
+                    child: Container(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [
+                            context.semanticColors.headerDeep,
+                            context.semanticColors.headerLight,
+                          ],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                        ),
+                      ),
+                      child: MonthlyBudgetCard(
+                        hero: true,
+                        spending: monthSpending,
+                        currentSpent: monthSpending.total,
+                        currencySymbol: _currency,
+                        monthlyTarget: _monthlyTarget,
+                        onReviewUnclassified: _reviewMonthUnclassified,
+                        rolloverRecap: monthlyRolloverRecap,
+                        selectedMonth: _heroMonth,
+                        availableMonths: availableLedgerMonths(
+                          _transactions,
+                          limit: null,
+                        ),
+                        onMonthSelected: _selectHeroMonth,
+                        onCalendarPressed: () => _showCategoryBreakdown(
+                          formatMonthHeading(_heroMonth, now: DateTime.now()),
+                          'month',
+                          targetMonth: _heroMonth,
+                        ),
+                        onSetTargetPressed: _showMonthlyTargetDialog,
+                      ),
                     ),
                   ),
-                  SizedBox(height: isWide ? 10 : 8),
-                  IntrinsicHeight(child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Expanded(
-                        child: GestureDetector(
-                          onTap: () => _showCategoryBreakdown('Today', 'today'),
-                          child: ConstrainedBox(
-                            constraints: const BoxConstraints(minHeight: 116),
-                            child: _SummaryCard(
-                              title: 'TODAY',
-                              amount: formatWholeCurrency(
-                                _calculateTotal('today'),
-                                _currency,
-                              ),
-                              subtitle: formatExpenseCount(todayExpenseCount),
-                              icon: Icons.calendar_today,
-                              matchPanels: isWide,
-                              dailyAllowance: dailyAllowance == null ? null :
-                                  formatWholeCurrency(dailyAllowance.floorToDouble(), _currency),
-                              onDailyAllowanceTapped: dailyAllowance == null
-                                  ? null
-                                  : () => showDialog<void>(
-                                      context: context,
-                                      builder: (_) => DailyAllowanceDialog(
-                                        spending: currentMonthSpending,
-                                        budget: _monthlyTarget!,
-                                        currencySymbol: _currency,
-                                        date: today,
-                                      ),
-                                    ),
-                            ),
-                          ),
-                        ),
-                      ),
-                      SizedBox(width: isWide ? 16 : 12),
-                      Expanded(
-                        child: GestureDetector(
-                          onTap: () => _showCategoryBreakdown(
-                            'This Year',
-                            'year',
-                            targetMonth: monthStart(DateTime.now()),
-                          ),
-                          child: ConstrainedBox(
-                            constraints: const BoxConstraints(minHeight: 116),
-                            child: _SummaryCard(
-                              title: 'THIS YEAR',
-                              amount: formatWholeCurrency(
-                                _calculateTotal(
-                                  'year',
-                                  targetMonth: monthStart(DateTime.now()),
+                  SizedBox(height: isWide ? 8 : 6),
+                  IntrinsicHeight(
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Expanded(
+                          child: GestureDetector(
+                            onTap: () =>
+                                _showCategoryBreakdown('Today', 'today'),
+                            child: ConstrainedBox(
+                              constraints: const BoxConstraints(minHeight: 100),
+                              child: _SummaryCard(
+                                title: 'TODAY',
+                                amount: formatWholeCurrency(
+                                  _calculateTotal('today'),
+                                  _currency,
                                 ),
-                                _currency,
+                                subtitle: formatExpenseCount(todayExpenseCount),
+                                icon: Icons.calendar_today,
+                                accent: context.accentColors.teal,
+                                dailyAllowance: dailyAllowance == null
+                                    ? null
+                                    : formatWholeCurrency(
+                                        dailyAllowance.floorToDouble(),
+                                        _currency,
+                                      ),
+                                onDailyAllowanceTapped: dailyAllowance == null
+                                    ? null
+                                    : () => showDialog<void>(
+                                        context: context,
+                                        builder: (_) => DailyAllowanceDialog(
+                                          spending: currentMonthSpending,
+                                          budget: _monthlyTarget!,
+                                          currencySymbol: _currency,
+                                          date: today,
+                                        ),
+                                      ),
                               ),
-                              subtitle: 'Total actual spending',
-                              icon: Icons.show_chart,
-                              matchPanels: isWide,
                             ),
                           ),
                         ),
-                      ),
-                    ],
-                  )),
+                        SizedBox(width: isWide ? 16 : 12),
+                        Expanded(
+                          child: GestureDetector(
+                            onTap: () => _showCategoryBreakdown(
+                              'This Year',
+                              'year',
+                              targetMonth: monthStart(DateTime.now()),
+                            ),
+                            child: ConstrainedBox(
+                              constraints: const BoxConstraints(minHeight: 100),
+                              child: _SummaryCard(
+                                title: 'THIS YEAR',
+                                amount: formatWholeCurrency(
+                                  _calculateTotal(
+                                    'year',
+                                    targetMonth: monthStart(DateTime.now()),
+                                  ),
+                                  _currency,
+                                ),
+                                subtitle: 'Year to date · ${today.year}',
+                                icon: Icons.show_chart,
+                                accent: context.accentColors.blue,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -3399,8 +3477,8 @@ class _DashboardScreenState extends State<DashboardScreen>
                   : const Icon(Icons.add),
               label: Text(_isSaving ? 'Saving...' : 'Save Expense'),
               style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF1B4D3E),
-                foregroundColor: Colors.white,
+                backgroundColor: Theme.of(context).colorScheme.primary,
+                foregroundColor: Theme.of(context).colorScheme.onPrimary,
                 minimumSize: const Size(double.infinity, 54),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(12),
@@ -3437,7 +3515,17 @@ class _DashboardScreenState extends State<DashboardScreen>
         selectedPage = scrollablePage([
           ...dashboardWidgets,
           const SizedBox(height: 24),
-          ...entryWidgets,
+          Card(
+            key: const ValueKey('home-expense-entry-panel'),
+            margin: EdgeInsets.zero,
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: entryWidgets,
+              ),
+            ),
+          ),
           const SizedBox(height: 14),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -3460,10 +3548,16 @@ class _DashboardScreenState extends State<DashboardScreen>
           if (recentTransactions.isEmpty)
             const Text('No expenses recorded yet.')
           else
-            ...recentTransactions.map(
-              (transaction) => ListTile(
+            ...recentTransactions.map((transaction) {
+              final accent = context.accentColors.forCategory(
+                transaction.categoryId ?? transaction.category,
+              );
+              return ListTile(
                 contentPadding: EdgeInsets.zero,
-                leading: const Icon(Icons.receipt_long_outlined),
+                leading: CircleAvatar(
+                  backgroundColor: accent.container,
+                  child: Icon(Icons.receipt_long_outlined, color: accent.icon),
+                ),
                 title: Text(
                   _expenseListLabel(transaction),
                   maxLines: 1,
@@ -3472,10 +3566,14 @@ class _DashboardScreenState extends State<DashboardScreen>
                 subtitle: Text(transaction.category),
                 trailing: Text(
                   formatFullCurrency(transaction.amount, _currency),
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.onSurface,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
                 onTap: () => _editTransaction(transaction),
-              ),
-            ),
+              );
+            }),
         ]);
         break;
       case 1:
@@ -3493,68 +3591,61 @@ class _DashboardScreenState extends State<DashboardScreen>
                 itemBuilder: (context, index) {
                   switch (index) {
                     case 0:
-                      return Container(
+                      return Card(
                         key: const ValueKey('expenses-import-panel'),
                         margin: const EdgeInsets.only(bottom: 12),
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          color: Theme.of(context)
-                              .colorScheme
-                              .surfaceContainerLow,
-                          border: Border.all(
-                            color: Theme.of(context).colorScheme.outlineVariant,
-                          ),
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            FilledButton.icon(
-                              key: const ValueKey(
-                                'import_reconcile_statements_button',
-                              ),
-                              onPressed: _isWorkerSyncing
-                                  ? null
-                                  : _uploadStatementToWorker,
-                              icon: _isWorkerSyncing
-                                  ? const SizedBox(
-                                      width: 18,
-                                      height: 18,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
-                                      ),
-                                    )
-                                  : const Icon(Icons.sync_alt),
-                              label: Text(
-                                _isWorkerSyncing
-                                    ? _workerSyncStatus ??
-                                          'Preparing statement...'
-                                    : 'Import Statements',
-                                textAlign: TextAlign.center,
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                              style: FilledButton.styleFrom(
-                                minimumSize: const Size(double.infinity, 52),
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 16,
-                                  vertical: 12,
+                        child: Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              FilledButton.icon(
+                                key: const ValueKey(
+                                  'import_reconcile_statements_button',
                                 ),
-                                shape: const StadiumBorder(),
-                              ),
-                            ),
-                            const SizedBox(height: 12),
-                            Text(
-                              'CSV, Excel & Google Sheets · Duplicates checked\n'
-                              'You can review/edit before import.',
-                              style: Theme.of(context).textTheme.bodySmall
-                                  ?.copyWith(
-                                    color: Theme.of(context)
-                                        .colorScheme
-                                        .onSurfaceVariant,
+                                onPressed: _isWorkerSyncing
+                                    ? null
+                                    : _uploadStatementToWorker,
+                                icon: _isWorkerSyncing
+                                    ? const SizedBox(
+                                        width: 18,
+                                        height: 18,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                        ),
+                                      )
+                                    : const Icon(Icons.sync_alt),
+                                label: Text(
+                                  _isWorkerSyncing
+                                      ? _workerSyncStatus ??
+                                            'Preparing statement...'
+                                      : 'Import Statements',
+                                  textAlign: TextAlign.center,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                style: FilledButton.styleFrom(
+                                  minimumSize: const Size(double.infinity, 52),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 16,
+                                    vertical: 12,
                                   ),
-                            ),
-                          ],
+                                  shape: const StadiumBorder(),
+                                ),
+                              ),
+                              const SizedBox(height: 12),
+                              Text(
+                                'CSV, Excel & Google Sheets · Duplicates checked\n'
+                                'You can review/edit before import.',
+                                style: Theme.of(context).textTheme.bodySmall
+                                    ?.copyWith(
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .onSurfaceVariant,
+                                    ),
+                              ),
+                            ],
+                          ),
                         ),
                       );
                     case 1:
@@ -3578,22 +3669,53 @@ class _DashboardScreenState extends State<DashboardScreen>
                       );
                     default:
                       final transaction = sortedTransactions[index - 2];
-                      return ListTile(
-                        contentPadding: EdgeInsets.zero,
-                        leading: const Icon(Icons.receipt_long_outlined),
-                        title: Text(
-                          _expenseListLabel(transaction),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        subtitle: Text(
-                          '${transaction.category} · ${_formatDate(transaction.date)}',
-                        ),
-                        trailing: Text(
-                          formatFullCurrency(transaction.amount, _currency),
-                          style: const TextStyle(fontWeight: FontWeight.w700),
-                        ),
-                        onTap: () => _editTransaction(transaction),
+                      final colors = Theme.of(context).colorScheme;
+                      final accent = context.accentColors.forCategory(
+                        transaction.categoryId ?? transaction.category,
+                      );
+                      return Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          ListTile(
+                            key: ValueKey('expense-row-${transaction.id}'),
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 2,
+                            ),
+                            horizontalTitleGap: 12,
+                            minLeadingWidth: 40,
+                            minVerticalPadding: 4,
+                            visualDensity: VisualDensity.compact,
+                            leading: CircleAvatar(
+                              radius: 20,
+                              backgroundColor: accent.container,
+                              child: Icon(
+                                Icons.receipt_long_outlined,
+                                color: accent.icon,
+                              ),
+                            ),
+                            title: Text(
+                              _expenseListLabel(transaction),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            subtitle: Text(
+                              '${transaction.category} · ${_formatDate(transaction.date)}',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            trailing: Text(
+                              formatFullCurrency(transaction.amount, _currency),
+                              style: TextStyle(
+                                fontWeight: FontWeight.w700,
+                                color: colors.onSurface,
+                              ),
+                            ),
+                            onTap: () => _editTransaction(transaction),
+                          ),
+                          if (index < sortedTransactions.length + 1)
+                            const Divider(height: 1, indent: 64),
+                        ],
                       );
                   }
                 },
@@ -3608,14 +3730,23 @@ class _DashboardScreenState extends State<DashboardScreen>
             summary: _baselineShortcutSummary,
             onTrends: () => _openInsight(
               'Spending trends',
-              Column(children: [
-                SpendingSummaryWidget(transactions: _transactions, currencySymbol: _currency),
-                if (insightMessage != null) _SpendingInsightCard(message: insightMessage),
-              ]),
+              Column(
+                children: [
+                  SpendingSummaryWidget(
+                    transactions: _transactions,
+                    currencySymbol: _currency,
+                  ),
+                  if (insightMessage != null)
+                    _SpendingInsightCard(message: insightMessage),
+                ],
+              ),
             ),
             onSpots: () => _openInsight(
               'Favourite spending spots',
-              FavouriteSpendingSpotsWidget(transactions: _transactions, currencySymbol: _currency),
+              FavouriteSpendingSpotsWidget(
+                transactions: _transactions,
+                currencySymbol: _currency,
+              ),
             ),
             onBudget: _showSuggestedBudget,
             onSavings: _openFinancialBaselineDetails,
@@ -3637,28 +3768,48 @@ class _DashboardScreenState extends State<DashboardScreen>
             child: Column(
               children: [
                 ListTile(
-                  leading: const Icon(Icons.category_outlined),
+                  leading: AccentIconChip(
+                    icon: Icons.category_outlined,
+                    accent: context.accentColors.teal,
+                    size: 36,
+                    iconSize: 19,
+                  ),
                   title: const Text('Expense categories'),
                   subtitle: const Text('Customize subcategories and mappings'),
                   onTap: _openExpenseCategorySettings,
                 ),
                 const Divider(height: 1),
                 ListTile(
-                  leading: const Icon(Icons.attach_money),
+                  leading: AccentIconChip(
+                    icon: Icons.attach_money,
+                    accent: context.accentColors.green,
+                    size: 36,
+                    iconSize: 19,
+                  ),
                   title: const Text('Currency'),
                   subtitle: Text(_currency),
                   onTap: _showCurrencyPicker,
                 ),
                 const Divider(height: 1),
                 SwitchListTile(
-                  secondary: const Icon(Icons.dark_mode_outlined),
+                  secondary: AccentIconChip(
+                    icon: Icons.dark_mode_outlined,
+                    accent: context.accentColors.violet,
+                    size: 36,
+                    iconSize: 19,
+                  ),
                   title: const Text('Dark mode'),
                   value: widget.isDarkMode,
                   onChanged: _toggleDarkMode,
                 ),
                 const Divider(height: 1),
                 ListTile(
-                  leading: const Icon(Icons.help_outline),
+                  leading: AccentIconChip(
+                    icon: Icons.help_outline,
+                    accent: context.accentColors.blue,
+                    size: 36,
+                    iconSize: 19,
+                  ),
                   title: const Text('Help & how it works'),
                   subtitle: const Text('Getting started, budgets and insights'),
                   onTap: () => Navigator.of(context).push<void>(
@@ -3670,7 +3821,12 @@ class _DashboardScreenState extends State<DashboardScreen>
                   PocketLedgerWebSettingsTile(store: _merchantStore),
                   const Divider(height: 1),
                   ListTile(
-                    leading: const Icon(Icons.notifications_active_outlined),
+                    leading: AccentIconChip(
+                      icon: Icons.notifications_active_outlined,
+                      accent: context.accentColors.amber,
+                      size: 36,
+                      iconSize: 19,
+                    ),
                     title: const Text('Daily reminder'),
                     subtitle: Text(_dailyReminderEnabled ? 'On' : 'Off'),
                     onTap: _showDailyReminderSettings,
@@ -3678,7 +3834,12 @@ class _DashboardScreenState extends State<DashboardScreen>
                 ],
                 const Divider(height: 1),
                 ListTile(
-                  leading: const Icon(Icons.feedback_outlined),
+                  leading: AccentIconChip(
+                    icon: Icons.feedback_outlined,
+                    accent: context.accentColors.rose,
+                    size: 36,
+                    iconSize: 19,
+                  ),
                   title: const Text('Submit feedback or request a feature'),
                   onTap: () => showDialog<void>(
                     context: context,
@@ -3687,16 +3848,27 @@ class _DashboardScreenState extends State<DashboardScreen>
                 ),
                 const Divider(height: 1),
                 ListTile(
-                  leading: const Icon(Icons.logout),
+                  leading: AccentIconChip(
+                    icon: Icons.logout,
+                    accent: context.accentColors.blue,
+                    size: 36,
+                    iconSize: 19,
+                  ),
                   title: const Text('Sign out'),
                   onTap: () => _googleSignIn.disconnect(),
                 ),
                 const Divider(height: 1),
                 ListTile(
-                  leading: Icon(Icons.delete_forever_outlined,
-                    color: Theme.of(context).colorScheme.error),
-                  title: Text('Delete account and app data',
-                    style: TextStyle(color: Theme.of(context).colorScheme.error)),
+                  leading: Icon(
+                    Icons.delete_forever_outlined,
+                    color: Theme.of(context).colorScheme.error,
+                  ),
+                  title: Text(
+                    'Delete account and app data',
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.error,
+                    ),
+                  ),
                   onTap: _openAccountDeletion,
                 ),
               ],
@@ -3729,7 +3901,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                     height: 36,
                     padding: const EdgeInsets.all(5),
                     decoration: BoxDecoration(
-                      color: const Color(0xFFE2E8E6),
+                      color: context.semanticColors.headerTrack,
                       borderRadius: BorderRadius.circular(9),
                     ),
                     child: Image.asset(
@@ -3857,6 +4029,7 @@ class _BreakdownCategoryRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
+    final accent = colorScheme.primary;
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -3881,21 +4054,11 @@ class _BreakdownCategoryRow extends StatelessWidget {
                     style: const TextStyle(fontWeight: FontWeight.bold),
                   ),
                   const SizedBox(width: 4),
-                  Icon(
-                    Icons.chevron_right,
-                    color: colorScheme.onSurfaceVariant,
-                    size: 20,
-                  ),
+                  Icon(Icons.chevron_right, color: accent, size: 20),
                 ],
               ),
               const SizedBox(height: 6),
-              LinearProgressIndicator(
-                value: percentage,
-                minHeight: 10,
-                borderRadius: BorderRadius.circular(8),
-                color: colorScheme.primary,
-                backgroundColor: colorScheme.surfaceContainerHighest,
-              ),
+              AppLinearProgressIndicator(value: percentage, color: accent),
             ],
           ),
         ),
@@ -3929,19 +4092,16 @@ class _SummaryCard extends StatelessWidget {
   final String amount;
   final String subtitle;
   final IconData icon;
+  final AccentColorPair accent;
   final String? dailyAllowance;
   final VoidCallback? onDailyAllowanceTapped;
-
-  /// When true (wide layouts) the tile uses the same card style as the
-  /// neighbouring panels while keeping the summary content compact.
-  final bool matchPanels;
 
   const _SummaryCard({
     required this.title,
     required this.amount,
     required this.subtitle,
     required this.icon,
-    this.matchPanels = false,
+    required this.accent,
     this.dailyAllowance,
     this.onDailyAllowanceTapped,
   });
@@ -3949,52 +4109,68 @@ class _SummaryCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
-    final compactAllowance = MediaQuery.sizeOf(context).width >= 360 &&
+    final semanticColors = context.semanticColors;
+    final compactAllowance =
+        MediaQuery.sizeOf(context).width >= 360 &&
         MediaQuery.textScalerOf(context).scale(11.5) <= 13.8 &&
         (dailyAllowance?.length ?? 0) <= 7;
     final allowanceText = Text(
       'Safe to spend $dailyAllowance/day',
       maxLines: compactAllowance ? 1 : null,
-      style: TextStyle(fontSize: 11.5, color: colorScheme.primary,
-        fontWeight: FontWeight.w600),
+      style: TextStyle(
+        fontSize: 11.5,
+        color: semanticColors.onSuccessContainer,
+        fontWeight: FontWeight.w600,
+      ),
     );
     final content = Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
             Expanded(
-              child: Text(
-                title,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.bold,
-                  color: colorScheme.onSurfaceVariant,
-                ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      color: colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      amount,
+                      maxLines: 1,
+                      style: Theme.of(context).textTheme.headlineSmall
+                          ?.copyWith(
+                            fontWeight: FontWeight.bold,
+                            color: colorScheme.onSurface,
+                          ),
+                    ),
+                  ),
+                ],
               ),
             ),
-            const SizedBox(width: 4),
-            Icon(icon, size: 18, color: colorScheme.primary),
+            const SizedBox(width: 8),
+            AccentIconChip(
+              icon: icon,
+              accent: accent,
+              size: 30,
+              iconSize: 16,
+              radius: 10,
+            ),
           ],
-        ),
-        const SizedBox(height: 6),
-        SizedBox(
-          width: double.infinity,
-          child: FittedBox(
-            fit: BoxFit.scaleDown,
-            alignment: Alignment.centerLeft,
-            child: Text(
-              amount,
-              style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                fontWeight: FontWeight.bold,
-                color: colorScheme.primary,
-              ),
-            ),
-          ),
         ),
         const SizedBox(height: 4),
         Text(
@@ -4005,25 +4181,34 @@ class _SummaryCard extends StatelessWidget {
               ?.copyWith(color: colorScheme.onSurfaceVariant),
         ),
         if (dailyAllowance != null) ...[
-          const SizedBox(height: 8),
+          const SizedBox(height: 4),
           Tooltip(
             message: 'How safe to spend is calculated',
             child: Material(
-              color: colorScheme.primaryContainer.withValues(alpha: .35),
+              color: semanticColors.successContainer,
               borderRadius: BorderRadius.circular(16),
               child: InkWell(
                 key: const ValueKey('daily-allowance-pill'),
                 borderRadius: BorderRadius.circular(16),
                 onTap: onDailyAllowanceTapped,
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
-                  child: compactAllowance
-                      ? FittedBox(
-                          fit: BoxFit.scaleDown,
-                          alignment: Alignment.centerLeft,
-                          child: allowanceText,
-                        )
-                      : allowanceText,
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(minHeight: 48),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 6,
+                      vertical: 6,
+                    ),
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: compactAllowance
+                          ? FittedBox(
+                              fit: BoxFit.scaleDown,
+                              alignment: Alignment.centerLeft,
+                              child: allowanceText,
+                            )
+                          : allowanceText,
+                    ),
+                  ),
                 ),
               ),
             ),
@@ -4032,31 +4217,9 @@ class _SummaryCard extends StatelessWidget {
       ],
     );
 
-    if (matchPanels) {
-      return Card(
-        margin: EdgeInsets.zero,
-        color: colorScheme.surfaceContainerLow,
-        elevation: 1,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        clipBehavior: Clip.antiAlias,
-        child: Padding(padding: const EdgeInsets.all(12), child: content),
-      );
-    }
-
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: colorScheme.surfaceContainerLow,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.04),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: content,
+    return Card(
+      margin: EdgeInsets.zero,
+      child: Padding(padding: const EdgeInsets.all(10), child: content),
     );
   }
 }
@@ -4069,32 +4232,27 @@ class _DriveAccessBanner extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
-    return Container(
+    return Card(
       key: const ValueKey('drive-access-banner'),
       margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: colorScheme.secondaryContainer,
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Row(
-        children: [
-          Icon(
-            Icons.cloud_off_outlined,
-            color: colorScheme.onSecondaryContainer,
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Text(
-              'Connect Google Drive to load your expenses. '
-              'Your numbers appear once it is connected.',
-              style: Theme.of(context).textTheme.bodyMedium
-                  ?.copyWith(color: colorScheme.onSecondaryContainer),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Row(
+          children: [
+            Icon(Icons.cloud_off_outlined, color: colorScheme.primary),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                'Connect Google Drive to load your expenses. '
+                'Your numbers appear once it is connected.',
+                style: Theme.of(context).textTheme.bodyMedium
+                    ?.copyWith(color: colorScheme.onSurface),
+              ),
             ),
-          ),
-          const SizedBox(width: 12),
-          FilledButton(onPressed: onConnect, child: const Text('Connect')),
-        ],
+            const SizedBox(width: 12),
+            FilledButton(onPressed: onConnect, child: const Text('Connect')),
+          ],
+        ),
       ),
     );
   }
@@ -4108,7 +4266,6 @@ class _SpendingInsightCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Card(
-      color: Theme.of(context).colorScheme.secondaryContainer,
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Row(
@@ -4218,11 +4375,22 @@ class _ExpenseEditDialogState extends State<_ExpenseEditDialog> {
                 if (!expenseCategoryOptions.any(
                   (category) => category.name == _category,
                 ))
-                  DropdownMenuItem(value: _category, child: Text(_category, maxLines: 1, overflow: TextOverflow.ellipsis)),
+                  DropdownMenuItem(
+                    value: _category,
+                    child: Text(
+                      _category,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
                 ...expenseCategoryOptions.map(
                   (category) => DropdownMenuItem(
                     value: category.name,
-                    child: Text(category.name, maxLines: 1, overflow: TextOverflow.ellipsis),
+                    child: Text(
+                      category.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ),
                 ),
               ],

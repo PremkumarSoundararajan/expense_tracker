@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../app_theme.dart';
 import '../models/expense_category.dart';
 import '../models/transaction.dart';
 
@@ -106,7 +107,17 @@ class ExpenseCategorySelector extends StatelessWidget {
       ),
       child: Row(
         children: [
-          const Icon(Icons.category_outlined),
+          Container(
+            padding: const EdgeInsets.all(9),
+            decoration: BoxDecoration(
+              color: context.accentColors.teal.container,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(
+              Icons.category_outlined,
+              color: context.accentColors.teal.icon,
+            ),
+          ),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
@@ -294,14 +305,30 @@ class _CategoryPickerSheetState extends State<_CategoryPickerSheet> {
         );
   List<Widget> _categoryTiles(Iterable<ExpenseCategory> values) => [
     for (final category in values)
-      ListTile(
-        dense: true,
-        title: Text(category.name),
-        subtitle: Text(category.parentName),
-        trailing: category.id == widget.selectedId
-            ? const Icon(Icons.check)
-            : null,
-        onTap: () => Navigator.of(context).pop(category),
+      Builder(
+        builder: (context) {
+          final accent = context.accentColors.forCategory(category.id);
+          return ListTile(
+            dense: true,
+            leading: CircleAvatar(
+              backgroundColor: accent.container,
+              child: Icon(
+                Icons.category_outlined,
+                size: 18,
+                color: accent.icon,
+              ),
+            ),
+            title: Text(category.name),
+            subtitle: Text(category.parentName),
+            trailing: category.id == widget.selectedId
+                ? Icon(
+                    Icons.check,
+                    color: Theme.of(context).colorScheme.primary,
+                  )
+                : null,
+            onTap: () => Navigator.of(context).pop(category),
+          );
+        },
       ),
   ];
 }
