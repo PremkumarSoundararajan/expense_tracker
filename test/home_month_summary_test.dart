@@ -111,7 +111,8 @@ void main() {
         expect(preferences.getDouble('monthly_target'), 500);
         final originalAllowance = tester
             .widget<Text>(find.textContaining('Safe to spend'))
-            .data;
+            .textSpan!
+            .toPlainText();
         // Editing while viewing history updates the one shared budget.
         await tester.tap(find.byKey(const ValueKey('monthly-budget-details')));
         await tester.pumpAndSettle();
@@ -135,7 +136,10 @@ void main() {
           isEmpty,
         );
         final allowanceAfterPastEdit = find.textContaining('Safe to spend');
-        final safeToSpend = tester.widget<Text>(allowanceAfterPastEdit).data;
+        final safeToSpend = tester
+            .widget<Text>(allowanceAfterPastEdit)
+            .textSpan!
+            .toPlainText();
         expect(safeToSpend, isNot(originalAllowance));
         for (final month in [
           past,
@@ -148,7 +152,7 @@ void main() {
               .onSelected(month);
           await tester.pumpAndSettle();
           expect(find.text(r'Budget: $5,000'), findsOneWidget);
-          expect(find.text(safeToSpend!), findsOneWidget);
+          expect(find.text(safeToSpend), findsOneWidget);
         }
         // A subsequent edit from the current month also changes every past month.
         await tester.tap(find.byKey(const ValueKey('monthly-budget-details')));

@@ -10,6 +10,16 @@ double _contrast(Color foreground, Color background) {
   return (lighter + 0.05) / (darker + 0.05);
 }
 
+Color _compositeOver(Color foreground, Color background) {
+  final alpha = foreground.a;
+  return Color.fromARGB(
+    255,
+    ((foreground.r * alpha + background.r * (1 - alpha)) * 255).round(),
+    ((foreground.g * alpha + background.g * (1 - alpha)) * 255).round(),
+    ((foreground.b * alpha + background.b * (1 - alpha)) * 255).round(),
+  );
+}
+
 void main() {
   for (final (name, theme) in [
     ('light', AppTheme.light),
@@ -119,6 +129,30 @@ void main() {
         accents.teal.container,
         reason: 'consistent teal navigation indicator in $name theme',
       );
+    });
+
+    test('$name hero progress fills contrast with their track', () {
+      final semantic = theme.extension<AppSemanticColors>()!;
+      final trackColors = [
+        _compositeOver(semantic.headerTrack, semantic.headerDeep),
+        _compositeOver(semantic.headerTrack, semantic.headerLight),
+      ];
+      final isLight = theme.brightness == Brightness.light;
+      final stateColors = [
+        isLight ? semantic.success : semantic.onSuccessContainer,
+        isLight ? semantic.warning : semantic.onWarningContainer,
+        isLight ? theme.colorScheme.error : theme.colorScheme.onErrorContainer,
+      ];
+
+      for (final (index, fill) in stateColors.indexed) {
+        for (final track in trackColors) {
+          expect(
+            _contrast(fill, track),
+            greaterThanOrEqualTo(3),
+            reason: 'progress state $index in $name theme: $fill on $track',
+          );
+        }
+      }
     });
 
     test('$name surface roles are neutral', () {

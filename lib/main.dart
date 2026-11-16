@@ -8,7 +8,7 @@ import 'package:file_picker/file_picker.dart';
 
 import 'services/statement_file_picker_options.dart';
 
-import 'package:excel_community/excel_community.dart' hide Border;
+import 'package:excel_community/excel_community.dart' hide Border, TextSpan;
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:googleapis/drive/v3.dart' as drive;
 import 'package:googleapis/sheets/v4.dart' as sheets;
@@ -3895,19 +3895,23 @@ class _DashboardScreenState extends State<DashboardScreen>
         title: _selectedTab == 0
             ? Row(
                 children: [
-                  Container(
+                  SizedBox(
                     key: const ValueKey('home-brand-logo'),
                     width: 36,
                     height: 36,
-                    padding: const EdgeInsets.all(5),
-                    decoration: BoxDecoration(
-                      color: context.semanticColors.headerTrack,
-                      borderRadius: BorderRadius.circular(9),
-                    ),
-                    child: Image.asset(
-                      'assets/images/app_icon_foreground.png',
-                      fit: BoxFit.contain,
-                      excludeFromSemantics: true,
+                    child: Padding(
+                      padding: const EdgeInsets.all(3),
+                      child: ColorFiltered(
+                        colorFilter: ColorFilter.mode(
+                          context.semanticColors.onHeader,
+                          BlendMode.srcIn,
+                        ),
+                        child: Image.asset(
+                          'assets/images/app_icon_foreground.png',
+                          fit: BoxFit.contain,
+                          excludeFromSemantics: true,
+                        ),
+                      ),
                     ),
                   ),
                   const SizedBox(width: 10),
@@ -4114,13 +4118,26 @@ class _SummaryCard extends StatelessWidget {
         MediaQuery.sizeOf(context).width >= 360 &&
         MediaQuery.textScalerOf(context).scale(11.5) <= 13.8 &&
         (dailyAllowance?.length ?? 0) <= 7;
-    final allowanceText = Text(
-      'Safe to spend $dailyAllowance/day',
+    final allowanceText = Text.rich(
+      TextSpan(
+        children: [
+          const TextSpan(text: 'Safe to spend '),
+          TextSpan(
+            text: '$dailyAllowance',
+            style: TextStyle(
+              color: semanticColors.success,
+              fontSize: 12.5,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const TextSpan(text: '/day'),
+        ],
+      ),
       maxLines: compactAllowance ? 1 : null,
       style: TextStyle(
         fontSize: 11.5,
-        color: semanticColors.onSuccessContainer,
-        fontWeight: FontWeight.w600,
+        color: colorScheme.onSurfaceVariant,
+        fontWeight: FontWeight.w500,
       ),
     );
     final content = Column(
@@ -4184,30 +4201,35 @@ class _SummaryCard extends StatelessWidget {
           const SizedBox(height: 4),
           Tooltip(
             message: 'How safe to spend is calculated',
-            child: Material(
-              color: semanticColors.successContainer,
-              borderRadius: BorderRadius.circular(16),
-              child: InkWell(
-                key: const ValueKey('daily-allowance-pill'),
-                borderRadius: BorderRadius.circular(16),
-                onTap: onDailyAllowanceTapped,
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(minHeight: 48),
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 6,
-                      vertical: 6,
-                    ),
-                    child: Align(
-                      alignment: Alignment.centerLeft,
-                      child: compactAllowance
-                          ? FittedBox(
-                              fit: BoxFit.scaleDown,
-                              alignment: Alignment.centerLeft,
-                              child: allowanceText,
-                            )
-                          : allowanceText,
-                    ),
+            child: InkWell(
+              key: const ValueKey('daily-allowance-pill'),
+              borderRadius: BorderRadius.circular(8),
+              onTap: onDailyAllowanceTapped,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(minHeight: 48),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 4,
+                    vertical: 4,
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.savings_outlined,
+                        size: 15,
+                        color: semanticColors.success,
+                      ),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: compactAllowance
+                            ? FittedBox(
+                                fit: BoxFit.scaleDown,
+                                alignment: Alignment.centerLeft,
+                                child: allowanceText,
+                              )
+                            : allowanceText,
+                      ),
+                    ],
                   ),
                 ),
               ),

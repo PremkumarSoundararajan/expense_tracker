@@ -297,14 +297,10 @@ abstract final class AppTheme {
     );
     final semanticColors = AppSemanticColors(
       surfaceVariant: surfaceVariant,
-      headerDeep: isLight
-          ? const Color(0xFF165A68)
-          : const Color(0xFF123D46),
-      headerLight: isLight
-          ? const Color(0xFF236A7A)
-          : const Color(0xFF1E5660),
+      headerDeep: isLight ? const Color(0xFF165A68) : const Color(0xFF123D46),
+      headerLight: isLight ? const Color(0xFF236A7A) : const Color(0xFF1E5660),
       onHeader: Colors.white,
-      headerTrack: const Color(0x66FFFFFF),
+      headerTrack: isLight ? const Color(0xA6FFFFFF) : const Color(0x42FFFFFF),
       success: isLight ? _brand : _brandDarkMode,
       onSuccess: isLight ? Colors.white : const Color(0xFF00382B),
       successContainer: isLight

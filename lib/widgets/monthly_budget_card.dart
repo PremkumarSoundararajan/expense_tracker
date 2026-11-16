@@ -103,6 +103,14 @@ class MonthlyBudgetCard extends StatelessWidget {
         : progressRatio >= .8
         ? semanticColors.warning
         : semanticColors.success;
+    final progressColor =
+        hero && theme.brightness == Brightness.dark
+        ? result == BudgetOutcome.over
+              ? colors.onErrorContainer
+              : progressRatio >= .8
+              ? semanticColors.onWarningContainer
+              : semanticColors.onSuccessContainer
+        : statusColor;
     final statusTextColor = hero ? semanticColors.onHeader : statusColor;
     final heading = MaterialLocalizations.of(context).formatMonthYear(month);
     Widget row(String label, String value, {bool bold = false, Color? color}) =>
@@ -271,11 +279,19 @@ class MonthlyBudgetCard extends StatelessWidget {
                         textButtonTheme: TextButtonThemeData(
                           style: TextButton.styleFrom(
                             foregroundColor: semanticColors.onHeader,
+                            overlayColor: semanticColors.onHeader.withValues(
+                              alpha: 0.12,
+                            ),
                           ),
                         ),
                         iconButtonTheme: IconButtonThemeData(
                           style: IconButton.styleFrom(
                             foregroundColor: semanticColors.onHeader,
+                            disabledForegroundColor: semanticColors.onHeader
+                                .withValues(alpha: 0.46),
+                            overlayColor: semanticColors.onHeader.withValues(
+                              alpha: 0.12,
+                            ),
                           ),
                         ),
                       )
@@ -340,6 +356,12 @@ class MonthlyBudgetCard extends StatelessWidget {
                       key: const ValueKey('monthly-budget-details'),
                       onPressed: details,
                       style: TextButton.styleFrom(
+                        foregroundColor: hero
+                            ? semanticColors.onHeader
+                            : colors.primary,
+                        overlayColor:
+                            (hero ? semanticColors.onHeader : colors.primary)
+                                .withValues(alpha: 0.12),
                         padding: const EdgeInsets.symmetric(horizontal: 4),
                         minimumSize: const Size(0, 48),
                       ),
@@ -363,7 +385,13 @@ class MonthlyBudgetCard extends StatelessWidget {
                             ),
                           ),
                           const SizedBox(width: 6),
-                          const Icon(Icons.info_outline, size: 18),
+                          Icon(
+                            Icons.info_outline,
+                            size: 20,
+                            color: hero
+                                ? semanticColors.onHeader
+                                : colors.primary,
+                          ),
                         ],
                       ),
                     ),
@@ -408,7 +436,7 @@ class MonthlyBudgetCard extends StatelessWidget {
             const SizedBox(height: 10),
             AppLinearProgressIndicator(
               value: progressRatio,
-              color: statusColor,
+              color: progressColor,
               trackColor: hero ? semanticColors.headerTrack : null,
             ),
             if (amounts.total != amounts.budgetRelevant) ...[
