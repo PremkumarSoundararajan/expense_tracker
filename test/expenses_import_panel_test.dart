@@ -65,13 +65,18 @@ void main() {
       'ledger shows clean merchant labels and editing retains the original at $width',
       (tester) async {
         const raw = 'ATMOS ENERGY RCR UTIL PYMT 003068 WEB ID: 900';
+        final recentDate = DateTime.now();
+        final recentDateLabel =
+            '${recentDate.year.toString().padLeft(4, '0')}-'
+            '${recentDate.month.toString().padLeft(2, '0')}-'
+            '${recentDate.day.toString().padLeft(2, '0')}';
         await openExpenses(
           tester,
           width: width,
           transactions: [
             Transaction(
               id: 'bank',
-              date: DateTime.now(),
+              date: recentDate,
               amount: 132.26,
               category: 'Housing / Bills',
               description: raw,
@@ -113,6 +118,7 @@ void main() {
         await tester.ensureVisible(label);
         await tester.pumpAndSettle();
         expect(label, findsOneWidget);
+        expect(find.text('Housing / Bills · $recentDateLabel'), findsOneWidget);
         final stored = await LocalTransactionStore(
           accountKey: 'expenses-panel@example.com',
         ).loadCached();
@@ -122,6 +128,24 @@ void main() {
       },
     );
   }
+  testWidgets('Currency picker can be dismissed without selecting a currency', (
+    tester,
+  ) async {
+    await openExpenses(tester, width: 390);
+    await tester.tap(find.text('Settings').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Currency'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Welcome to Pocket Ledger!'), findsOneWidget);
+    expect(find.byType(BottomSheet), findsOneWidget);
+    await tester.tap(find.byType(ModalBarrier).last);
+    await tester.pumpAndSettle();
+    expect(find.text('Welcome to Pocket Ledger!'), findsNothing);
+    expect(find.byType(BottomSheet), findsNothing);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pumpAndSettle();
+  });
   testWidgets(
     'Import Statements directly opens the device picker without source options or a link',
     (tester) async {

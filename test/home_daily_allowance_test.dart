@@ -128,7 +128,7 @@ void main() {
             tester.widget<Text>(find.text(label)).maxLines,
             width >= 360 && scale == 1 ? 1 : isNull,
           );
-          expect(tester.widget<Text>(find.text(label)).style!.fontSize, 11.5);
+          expect(tester.widget<Text>(find.text(label)).style!.fontSize, 12.5);
           final selector = tester.widget<MonthSelector>(
             find.byType(MonthSelector),
           );

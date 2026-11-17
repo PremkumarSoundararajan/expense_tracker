@@ -118,7 +118,10 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text('Insights').last);
       await tester.pumpAndSettle();
-      expect(find.textContaining('You can stop here'), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('baseline-target-reached')),
+        findsOneWidget,
+      );
       expect(find.text('Beta · 1'), findsNothing);
       expect(tester.takeException(), isNull);
     },

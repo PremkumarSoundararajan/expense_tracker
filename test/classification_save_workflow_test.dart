@@ -78,6 +78,8 @@ void main() {
         await choose('type', 'Regular');
         expect(find.text('Alpha · 1'), findsOneWidget);
         expect(find.text('Ready to save'), findsOneWidget);
+        await tester.tap(find.byTooltip('How coverage is calculated'));
+        await tester.pumpAndSettle();
         final coverage = tester.widget<Text>(
           find.byKey(const ValueKey('baseline-coverage-summary')),
         );
@@ -88,6 +90,8 @@ void main() {
           find.text('Available history · 2026-10-01 to 2026-10-01'),
           findsOneWidget,
         );
+        await tester.tap(find.text('Done'));
+        await tester.pumpAndSettle();
         expect(find.textContaining('Top 80% done'), findsNothing);
         // Restoring the unsaved draft must also retain its original work-list membership.
         await tester.pumpWidget(const SizedBox.shrink());
@@ -112,12 +116,16 @@ void main() {
         completion.complete('Saved');
         await tester.pumpAndSettle();
         expect(find.text('Alpha · 1'), findsNothing);
+        await tester.tap(find.byTooltip('How coverage is calculated'));
+        await tester.pumpAndSettle();
         final savedCoverage = tester.widget<Text>(
           find.byKey(const ValueKey('baseline-coverage-summary')),
         );
         expect(savedCoverage.data, contains('Classified 100.0%'));
         expect(savedCoverage.data, contains('Unclassified 0.0%'));
         expect(savedCoverage.data, contains(r'$100'));
+        await tester.tap(find.text('Done'));
+        await tester.pumpAndSettle();
         expect(store.index.apply(rows.single).expenseType, ExpenseType.regular);
         await tester.tap(find.byKey(const ValueKey('baseline-classified')));
         await tester.pumpAndSettle();

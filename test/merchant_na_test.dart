@@ -211,6 +211,8 @@ void main() {
         findsOneWidget,
       );
       expect(find.byKey(const ValueKey('review-na')), findsOneWidget);
+      await tester.tap(find.byTooltip('How coverage is calculated'));
+      await tester.pumpAndSettle();
       expect(
         tester
             .widget<Text>(
@@ -219,6 +221,8 @@ void main() {
             .data,
         contains('Excluded'),
       );
+      await tester.tap(find.text('Done'));
+      await tester.pumpAndSettle();
       expect(
         find.textContaining('2 additional merchants excluded'),
         findsOneWidget,

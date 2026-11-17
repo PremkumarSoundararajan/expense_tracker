@@ -1000,8 +1000,8 @@ class _DashboardScreenState extends State<DashboardScreen>
   void _showCurrencyPicker() {
     showModalBottomSheet(
       context: context,
-      isDismissible: false,
-      enableDrag: false,
+      isDismissible: true,
+      enableDrag: true,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
@@ -1677,6 +1677,7 @@ class _DashboardScreenState extends State<DashboardScreen>
           historyComplete: _targetHistoryComplete,
           initialDraft: draft,
           insightsOnly: true,
+          popAfterInsightsDismissal: true,
           onClassifyExpenses: () =>
               _reviewRemainingClassification(unknownOnly: false),
           onDraftChanged: _financialBaselineStore.saveDraft,
@@ -3563,7 +3564,9 @@ class _DashboardScreenState extends State<DashboardScreen>
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
-                subtitle: Text(transaction.category),
+                subtitle: Text(
+                  '${transaction.category} · ${_formatDate(transaction.date)}',
+                ),
                 trailing: Text(
                   formatFullCurrency(transaction.amount, _currency),
                   style: TextStyle(
@@ -3782,7 +3785,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                 ListTile(
                   leading: AccentIconChip(
                     icon: Icons.attach_money,
-                    accent: context.accentColors.green,
+                    accent: context.accentColors.teal,
                     size: 36,
                     iconSize: 19,
                   ),
@@ -4116,7 +4119,7 @@ class _SummaryCard extends StatelessWidget {
     final semanticColors = context.semanticColors;
     final compactAllowance =
         MediaQuery.sizeOf(context).width >= 360 &&
-        MediaQuery.textScalerOf(context).scale(11.5) <= 13.8 &&
+        MediaQuery.textScalerOf(context).scale(12.5) <= 15 &&
         (dailyAllowance?.length ?? 0) <= 7;
     final allowanceText = Text.rich(
       TextSpan(
@@ -4126,7 +4129,7 @@ class _SummaryCard extends StatelessWidget {
             text: '$dailyAllowance',
             style: TextStyle(
               color: semanticColors.success,
-              fontSize: 12.5,
+              fontSize: 14,
               fontWeight: FontWeight.w700,
             ),
           ),
@@ -4135,7 +4138,7 @@ class _SummaryCard extends StatelessWidget {
       ),
       maxLines: compactAllowance ? 1 : null,
       style: TextStyle(
-        fontSize: 11.5,
+        fontSize: 12.5,
         color: colorScheme.onSurfaceVariant,
         fontWeight: FontWeight.w500,
       ),

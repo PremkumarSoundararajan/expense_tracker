@@ -2,7 +2,6 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
-import '../app_theme.dart';
 import '../models/expense_category.dart';
 import '../models/financial_baseline.dart';
 import '../models/transaction.dart';
@@ -70,6 +69,7 @@ class _MerchantBaselinePanelState extends State<MerchantBaselinePanel> {
   final _naThreshold = TextEditingController();
   bool _showNaControls = false;
   bool _classifiedTable = false;
+  bool _merchantsExpanded = false;
   ClassifiedSpendingBreakdown? _breakdownCache;
   MerchantClassificationIndex? _breakdownIndex;
   List<FavouriteSpendingSpot>? _breakdownGroups;
@@ -111,75 +111,45 @@ class _MerchantBaselinePanelState extends State<MerchantBaselinePanel> {
   MerchantClassificationIndex get _index =>
       _indexCache ??= MerchantClassificationIndex(_draft.values);
   String money(double n) => formatFullCurrency(n, widget.currencySymbol);
-  Widget _reviewButton(
-    String view,
-    String label,
-    int count,
-    double percent,
-    IconData icon,
-  ) {
-    final selected = view == 'remaining'
-        ? ['remaining', 'unknown', 'focus'].contains(_view)
-        : _view == view;
-    final semanticColors = context.semanticColors;
-    final accent = view == 'remaining'
-        ? context.accentColors.amber
-        : context.accentColors.green;
-    final containerColor = view == 'remaining'
-        ? semanticColors.warningContainer
-        : semanticColors.successContainer;
-    final contentColor = view == 'remaining'
-        ? semanticColors.onWarningContainer
-        : semanticColors.onSuccessContainer;
-    return Expanded(
-      child: Semantics(
-        selected: selected,
-        child: Material(
-          color: containerColor,
-          elevation: selected ? 3 : 1,
-          shadowColor: Theme.of(context).colorScheme.shadow.withValues(
-            alpha: Theme.of(context).brightness == Brightness.light
-                ? 0.12
-                : 0.2,
-          ),
-          borderRadius: BorderRadius.circular(12),
-          child: InkWell(
-            key: ValueKey(
-              'baseline-' +
-                  (view == 'remaining' ? 'unclassified' : 'classified'),
-            ),
-            onTap: () => setState(() {
-              if (_view != view) _query = '';
-              _view = view;
-              if (view == 'classified') _classifiedTable = false;
-              _reviewCoverage = false;
-              if (view == 'remaining') _selection = 'All';
-            }),
-            borderRadius: BorderRadius.circular(12),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(icon, size: 22, color: accent.icon),
-                  const SizedBox(height: 4),
-                  Text(
-                    label + ' (' + count.toString() + ')',
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                      color: contentColor,
-                    ),
-                  ),
-                  Text(
-                    percent.toStringAsFixed(1) + '% of spending',
-                    style: TextStyle(fontSize: 12, color: contentColor),
-                  ),
-                ],
+  void _showCoverageDetails(String summary, String? history) {
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Financial Baseline details'),
+        content: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                'Coverage measures spending, not merchant count, across all eligible spending.',
               ),
-            ),
+              const SizedBox(height: 12),
+              Text(summary, key: const ValueKey('baseline-coverage-summary')),
+              if (history != null) ...[
+                const SizedBox(height: 12),
+                Text(
+                  'Available history · $history',
+                  key: const ValueKey('baseline-history-period'),
+                ),
+              ],
+              const SizedBox(height: 12),
+              const Text(
+                'Merchant choices apply to all its transactions. Expand a merchant to edit individual transactions.',
+              ),
+              const SizedBox(height: 12),
+              const Text(
+                'Category → category breakdowns. Expense Type → budgets. Essentiality → insights.',
+              ),
+            ],
           ),
         ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Done'),
+          ),
+        ],
       ),
     );
   }
@@ -189,6 +159,8 @@ class _MerchantBaselinePanelState extends State<MerchantBaselinePanel> {
     super.initState();
     if (widget.showRemainingInitially) _view = 'remaining';
     if (widget.reviewUnknownInitially) _view = 'unknown';
+    _merchantsExpanded =
+        widget.showRemainingInitially || widget.reviewUnknownInitially;
     _draft = {
       for (final r in widget.store.records.values)
         r['id'] as String: Map<String, dynamic>.from(r),
@@ -1456,8 +1428,13 @@ class _MerchantBaselinePanelState extends State<MerchantBaselinePanel> {
       if (naGroups.isNotEmpty)
         'Excluded ${(total <= 0 ? 0.0 : naAmount / total * 100).toStringAsFixed(1)}% · ${money(naAmount)}',
     ].join(' · ');
-    final showChart = _view == 'classified' && !_classifiedTable;
-    final showReview = _view != 'overview' && !showChart;
+    final historyPeriod = dates.isEmpty
+        ? null
+        : '${dates.first.toIso8601String().split('T').first} to '
+              '${dates.last.toIso8601String().split('T').first}';
+    final showChart =
+        _merchantsExpanded && _view == 'classified' && !_classifiedTable;
+    final showReview = _merchantsExpanded && _view != 'overview' && !showChart;
     final showNaAction = _view == 'remaining' || _view == 'focus';
     final showTable = showReview && source.isNotEmpty;
     return LayoutBuilder(
@@ -1489,323 +1466,430 @@ class _MerchantBaselinePanelState extends State<MerchantBaselinePanel> {
                           style: Theme.of(context).textTheme.titleLarge,
                         ),
                       ),
-                      Tooltip(
-                        message: 'Merchant choices apply to all its transactions. Expand a merchant to edit individual transactions.',
-                        triggerMode: TooltipTriggerMode.tap,
-                        child: const Padding(
-                          padding: EdgeInsets.all(8),
-                          child: Icon(Icons.info_outline, size: 20),
+                      IconButton(
+                        tooltip: 'How coverage is calculated',
+                        onPressed: () => _showCoverageDetails(
+                          coverageSummary,
+                          historyPeriod,
+                        ),
+                        icon: const Icon(Icons.info_outline),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      Expanded(
+                        child: Semantics(
+                          button: true,
+                          label:
+                              '${classifiedPercent.toStringAsFixed(1)}% spending classified',
+                          child: InkWell(
+                            key: const ValueKey('baseline-classified'),
+                            borderRadius: BorderRadius.circular(12),
+                            onTap: () => setState(() {
+                              _view = 'classified';
+                              _classifiedTable = false;
+                              _query = '';
+                              _reviewCoverage = false;
+                              _merchantsExpanded = true;
+                            }),
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 4),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    '${classifiedPercent.toStringAsFixed(1)}%',
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .headlineMedium
+                                        ?.copyWith(
+                                          color: Theme.of(context)
+                                              .colorScheme
+                                              .primary,
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                  ),
+                                  Text(
+                                    'Spending classified',
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .bodyMedium,
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
                         ),
                       ),
+                      const SizedBox(width: 12),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          Text(
+                            '${completed.length} merchants',
+                            style: Theme.of(context).textTheme.titleSmall
+                                ?.copyWith(fontWeight: FontWeight.w600),
+                          ),
+                          const SizedBox(height: 8),
+                          if (!showChart)
+                            InkWell(
+                              key: const ValueKey('review-na'),
+                              borderRadius: BorderRadius.circular(8),
+                              onTap: () => setState(() {
+                                _view = 'na';
+                                _query = '';
+                                _merchantsExpanded = true;
+                              }),
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 2,
+                                  horizontal: 4,
+                                ),
+                                child: Text(
+                                  '${naGroups.length} excluded · ${money(naAmount)}',
+                                  style: Theme.of(context).textTheme.bodySmall,
+                                  textAlign: TextAlign.right,
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
                     ],
                   ),
-                  if (dates.isNotEmpty) ...[
-                    const SizedBox(height: 2),
-                    Text(
-                      'Available history · ${dates.first.toIso8601String().split('T').first} to ${dates.last.toIso8601String().split('T').first}',
-                      key: const ValueKey('baseline-history-period'),
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: Theme.of(context).colorScheme.onSurfaceVariant,
-                      ),
-                    ),
-                  ],
-                  const SizedBox(height: 12),
-                  if (!widget.historyComplete)
-                    const Text('Showing saved history while syncing.'),
-                  Row(
-                    children: [
-                      _reviewButton(
-                        'classified',
-                        'Classified',
-                        completed.length,
-                        classifiedPercent,
-                        Icons.check_circle_outline,
-                      ),
-                      const SizedBox(width: 8),
-                      _reviewButton(
-                        'remaining',
-                        'Unclassified',
-                        remaining.length,
-                        total <= 0 ? 0.0 : remainingAmount / total * 100,
-                        Icons.pending_actions_outlined,
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 8),
                   AppLinearProgressIndicator(
                     value: total == 0 ? 0 : (reviewed / total).clamp(0, 1),
                   ),
-                  const SizedBox(height: 8),
-                  Text(
-                    coverageSummary,
-                    key: const ValueKey('baseline-coverage-summary'),
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                  const SizedBox(height: 12),
-                  if (naGroups.isNotEmpty && _view != 'classified')
-                    TextButton(
-                      key: const ValueKey('review-na'),
-                      onPressed: () => setState(() {
-                        _view = 'na';
-                        _query = '';
-                      }),
-                      child: Text(
-                        'Excluded (' +
-                            naGroups.length.toString() +
-                            ') · ' +
-                            (total <= 0 ? 0.0 : naAmount / total * 100)
-                                .toStringAsFixed(1) +
-                            '% of spending',
-                      ),
-                    ),
-                  if (showNaAction)
-                    Card(
-                      key: const ValueKey('bulk-exclusion-box'),
-                      margin: const EdgeInsets.only(top: 12, bottom: 24),
-                      child: Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: _naControls(),
-                      ),
-                    ),
-                  if (_view == 'remaining' || _view == 'focus')
-                    SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
-                      child: Row(
-                        children: [
-                          for (final option in [
-                            'Top 15',
-                            '75%',
-                            '80%',
-                            '90%',
-                            'All',
-                          ])
-                            ChoiceChip(
-                              label: Text(option),
-                              selected: _selection == option,
-                              onSelected: (_) => setState(() {
-                                _selection = option;
-                                _view = 'focus';
-                                _reviewCoverage = true;
-                              }),
-                            ),
-                        ],
-                      ),
-                    ),
-                  if (_view == 'overview')
-                    const Text('Choose a group to view merchants.'),
-                  if (showReview) ...[
-                    const SizedBox(height: 8),
-                    Text(
-                      '$scope · ${filtered.length} merchants · ${money(selectedAmount)} · ${(total <= 0 ? 0.0 : selectedAmount / total * 100).toStringAsFixed(1)}% of spending',
-                      key: const ValueKey('merchant-coverage-scope'),
-                      style: const TextStyle(
-                        fontWeight: FontWeight.w600,
-                        fontSize: 12,
-                      ),
-                    ),
-                    const Text(
-                      'Coverage is spending, not merchant count · all eligible spending.',
-                      style: TextStyle(fontSize: 11),
-                    ),
-                    if (_query.trim().isNotEmpty && _view == 'focus')
-                      const Text(
-                        'Search includes all unclassified merchants, beyond the coverage target.',
-                        style: TextStyle(fontSize: 11),
-                      ),
-                    if (equivalent != null && filtered.isNotEmpty)
-                      Text(
-                        'Same ${filtered.length} merchants as the $equivalent selection.',
-                        key: const ValueKey('merchant-coverage-equivalent'),
-                        style: const TextStyle(fontSize: 11),
-                      ),
-                    const SizedBox(height: 8),
-                  ],
-                  if (_view == 'unknown')
-                    Text(
-                      'Unknown Expense Types (' +
-                          unknownGroups.length.toString() +
-                          ') · Largest Unknown spending first. Expand to review transaction exceptions.',
-                      style: TextStyle(fontSize: 12),
-                    ),
                   if (reachedTarget && _view == 'overview')
-                    Text(
-                      'Top 80% done. You can stop here, or choose Unclassified above.',
-                    ),
-                  if (_view == 'classified')
-                    Offstage(
-                      key: const ValueKey('classified-breakdown-host'),
-                      offstage: !showChart,
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          if (_changed.isNotEmpty)
-                            const Padding(
-                              padding: EdgeInsets.only(bottom: 12),
-                              child: Text('Preview includes unsaved choices.'),
-                            ),
-                          SpendingBreakdown(
-                            data: _breakdown,
-                            currencySymbol: widget.currencySymbol,
-                            onReviewMerchants: () =>
-                                setState(() => _classifiedTable = true),
-                          ),
-                        ],
-                      ),
-                    ),
-                  if (_view == 'classified' && _classifiedTable)
                     Padding(
-                      padding: const EdgeInsets.only(bottom: 16),
-                      child: TextButton.icon(
-                        key: const ValueKey('baseline-back-to-chart'),
-                        onPressed: () =>
-                            setState(() => _classifiedTable = false),
-                        icon: const Icon(Icons.arrow_back),
-                        label: const Text('Back to charts'),
+                      padding: const EdgeInsets.only(top: 4),
+                      child: Text(
+                        '80% coverage target met',
+                        key: const ValueKey('baseline-target-reached'),
+                        style: Theme.of(context).textTheme.bodySmall,
                       ),
                     ),
-                  if (showReview) const SizedBox(height: 16),
-                  if (showTable) ...[
-                    if (_view == 'classified' && _filtersOpen) _reviewFilters(),
-                    if (_view == 'classified' && _filterCount > 0)
-                      Text(
-                        '${filtered.length} of ${source.length} merchants match · changes update these results after saving',
-                        key: const ValueKey('baseline-filter-results'),
-                        style: const TextStyle(fontSize: 12),
-                      ),
-                    SizedBox(
-                      height: 42,
+                  const SizedBox(height: 10),
+                  InkWell(
+                    key: const ValueKey('baseline-unclassified'),
+                    borderRadius: BorderRadius.circular(8),
+                    onTap: () => setState(() {
+                      _view = 'remaining';
+                      _selection = 'All';
+                      _query = '';
+                      _reviewCoverage = false;
+                      _merchantsExpanded = true;
+                    }),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 4),
                       child: Row(
                         children: [
                           Expanded(
-                            child: TextField(
-                              key: ValueKey('baseline-search-' + _view),
-                              decoration: const InputDecoration(
-                                prefixIcon: Icon(Icons.search),
-                                hintText: 'Search merchants in this view',
-                                isDense: true,
-                              ),
-                              onChanged: (s) => setState(() => _query = s),
+                            child: Text(
+                              'Unclassified · ${remaining.length}',
+                              style: Theme.of(context).textTheme.bodyMedium,
                             ),
                           ),
-                          if (_view == 'classified')
-                            TextButton.icon(
-                              key: const ValueKey('baseline-filter-toggle'),
-                              onPressed: () =>
-                                  setState(() => _filtersOpen = !_filtersOpen),
-                              icon: const Icon(Icons.filter_list),
-                              label: Text(
-                                _filterCount == 0
-                                    ? 'Filters'
-                                    : 'Filters ($_filterCount)',
-                              ),
-                            ),
+                          Text(
+                            '${total <= 0 ? 0.0 : (remainingAmount / total * 100).toStringAsFixed(1)}% · ${money(remainingAmount)}',
+                            style: Theme.of(context).textTheme.bodyMedium
+                                ?.copyWith(fontWeight: FontWeight.w600),
+                          ),
+                          const SizedBox(width: 4),
+                          const Icon(Icons.chevron_right, size: 20),
                         ],
                       ),
                     ),
-                    Expanded(
-                      child: LayoutBuilder(
-                        builder: (_, constraints) => constraints.maxWidth < 1140
-                            ? _reviewEntries(entries, total, mobile: true)
-                            : SingleChildScrollView(
-                                scrollDirection: Axis.horizontal,
-                                child: SizedBox(
-                                  width: constraints.maxWidth < 1140
-                                      ? 1140
-                                      : constraints.maxWidth,
-                                  child: Column(
-                                    children: [
-                                      if (entries.isNotEmpty)
-                                        const SizedBox(
-                                          height: 28,
-                                          child: Row(
-                                            children: [
-                                              SizedBox(width: 48),
-                                              Expanded(child: Text('Merchant')),
-                                              SizedBox(
-                                                width: 154,
-                                                child: Text(
-                                                  'Spending / coverage',
-                                                ),
-                                              ),
-                                              SizedBox(
-                                                width: 202,
-                                                child: Text('Category'),
-                                              ),
-                                              SizedBox(
-                                                width: 184,
-                                                child: Text('Essentiality'),
-                                              ),
-                                              SizedBox(
-                                                width: 202,
-                                                child: Text('Expense Type'),
-                                              ),
-                                              SizedBox(width: 48),
-                                            ],
-                                          ),
-                                        ),
-                                      Expanded(
-                                        child: _reviewEntries(entries, total),
-                                      ),
-                                    ],
+                  ),
+                  const Divider(height: 24),
+                  InkWell(
+                    key: const ValueKey('baseline-view-merchants'),
+                    borderRadius: BorderRadius.circular(8),
+                    onTap: () => setState(() {
+                      if (_merchantsExpanded) {
+                        _merchantsExpanded = false;
+                      } else {
+                        _merchantsExpanded = true;
+                        if (_view == 'overview') {
+                          _view = 'classified';
+                          _classifiedTable = true;
+                          _query = '';
+                        }
+                      }
+                    }),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 6),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              _merchantsExpanded
+                                  ? 'Hide merchants'
+                                  : 'View merchants',
+                              style: Theme.of(context).textTheme.titleSmall
+                                  ?.copyWith(
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .primary,
+                                    fontWeight: FontWeight.w600,
                                   ),
-                                ),
+                            ),
+                          ),
+                          Icon(
+                            _merchantsExpanded
+                                ? Icons.expand_less
+                                : Icons.expand_more,
+                            color: Theme.of(context).colorScheme.primary,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  if (_merchantsExpanded) ...[
+                    const SizedBox(height: 12),
+                    if (!widget.historyComplete)
+                      const Text('Showing saved history while syncing.'),
+                    if (showNaAction)
+                      Card(
+                        key: const ValueKey('bulk-exclusion-box'),
+                        margin: const EdgeInsets.only(top: 12, bottom: 24),
+                        child: Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: _naControls(),
+                        ),
+                      ),
+                    if (_view == 'remaining' || _view == 'focus')
+                      SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: Row(
+                          children: [
+                            for (final option in [
+                              'Top 15',
+                              '75%',
+                              '80%',
+                              '90%',
+                              'All',
+                            ])
+                              ChoiceChip(
+                                label: Text(option),
+                                selected: _selection == option,
+                                onSelected: (_) => setState(() {
+                                  _selection = option;
+                                  _view = 'focus';
+                                  _reviewCoverage = true;
+                                }),
                               ),
+                          ],
+                        ),
                       ),
-                    ),
-                  ],
-                  if (showReview && !showTable)
-                    Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                      child: Text(
-                        _view == 'classified'
-                            ? 'No classified merchants yet.'
-                            : _view == 'na'
-                            ? 'No merchants marked NA.'
-                            : 'No unclassified merchants in this selection.',
+                    if (_view == 'overview')
+                      const Text('Choose a group to view merchants.'),
+                    if (showReview) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        '$scope · ${filtered.length} merchants · ${money(selectedAmount)} · ${(total <= 0 ? 0.0 : selectedAmount / total * 100).toStringAsFixed(1)}% of spending',
+                        key: const ValueKey('merchant-coverage-scope'),
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w600,
+                          fontSize: 12,
+                        ),
                       ),
-                    ),
-                  if (showReview)
-                    const Padding(
-                      padding: EdgeInsets.symmetric(vertical: 6),
-                      child: Text(
-                        'Category → breakdowns · Expense Type → budgets · Essentiality → savings',
+                      if (_query.trim().isNotEmpty && _view == 'focus')
+                        const Text(
+                          'Search includes all unclassified merchants, beyond the coverage target.',
+                          style: TextStyle(fontSize: 11),
+                        ),
+                      if (equivalent != null && filtered.isNotEmpty)
+                        Text(
+                          'Same ${filtered.length} merchants as the $equivalent selection.',
+                          key: const ValueKey('merchant-coverage-equivalent'),
+                          style: const TextStyle(fontSize: 11),
+                        ),
+                      const SizedBox(height: 8),
+                    ],
+                    if (_view == 'unknown')
+                      Text(
+                        'Unknown Expense Types (${unknownGroups.length}) · largest spending first.',
                         style: TextStyle(fontSize: 12),
                       ),
-                    ),
-                  if (_status != null)
-                    Text(
-                      _status!,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  if (_changed.isNotEmpty)
-                    Text(
-                      '${_changed.length} unsaved changes · save to update classification progress',
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  if (showReview || _changed.isNotEmpty)
-                    Align(
-                      alignment: Alignment.centerRight,
-                      child: Wrap(
-                        alignment: WrapAlignment.end,
-                        spacing: 8,
-                        runSpacing: 4,
-                        children: [
-                          if (_changed.isNotEmpty)
-                            TextButton(
-                              onPressed: _saving ? null : _discardDraft,
-                              child: const Text('Discard'),
+                    if (_view == 'classified')
+                      Offstage(
+                        key: const ValueKey('classified-breakdown-host'),
+                        offstage: !showChart,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            if (_changed.isNotEmpty)
+                              const Padding(
+                                padding: EdgeInsets.only(bottom: 12),
+                                child: Text(
+                                  'Preview includes unsaved choices.',
+                                ),
+                              ),
+                            SpendingBreakdown(
+                              data: _breakdown,
+                              currencySymbol: widget.currencySymbol,
+                              onReviewMerchants: () =>
+                                  setState(() => _classifiedTable = true),
                             ),
-                          FilledButton(
-                            onPressed: _changed.isEmpty || _saving
-                                ? null
-                                : _save,
-                            child: Text(_saving ? 'Saving…' : 'Save changes'),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
-                    ),
+                    if (_view == 'classified' && _classifiedTable)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 16),
+                        child: TextButton.icon(
+                          key: const ValueKey('baseline-back-to-chart'),
+                          onPressed: () =>
+                              setState(() => _classifiedTable = false),
+                          icon: const Icon(Icons.arrow_back),
+                          label: const Text('Back to charts'),
+                        ),
+                      ),
+                    if (showReview) const SizedBox(height: 16),
+                    if (showTable) ...[
+                      if (_view == 'classified' && _filtersOpen)
+                        _reviewFilters(),
+                      if (_view == 'classified' && _filterCount > 0)
+                        Text(
+                          '${filtered.length} of ${source.length} merchants match · changes update these results after saving',
+                          key: const ValueKey('baseline-filter-results'),
+                          style: const TextStyle(fontSize: 12),
+                        ),
+                      SizedBox(
+                        height: 42,
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: TextField(
+                                key: ValueKey('baseline-search-' + _view),
+                                decoration: const InputDecoration(
+                                  prefixIcon: Icon(Icons.search),
+                                  hintText: 'Search merchants in this view',
+                                  isDense: true,
+                                ),
+                                onChanged: (s) => setState(() => _query = s),
+                              ),
+                            ),
+                            if (_view == 'classified')
+                              TextButton.icon(
+                                key: const ValueKey('baseline-filter-toggle'),
+                                onPressed: () => setState(
+                                  () => _filtersOpen = !_filtersOpen,
+                                ),
+                                icon: const Icon(Icons.filter_list),
+                                label: Text(
+                                  _filterCount == 0
+                                      ? 'Filters'
+                                      : 'Filters ($_filterCount)',
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                      Expanded(
+                        child: LayoutBuilder(
+                          builder: (_, constraints) =>
+                              constraints.maxWidth < 1140
+                              ? _reviewEntries(entries, total, mobile: true)
+                              : SingleChildScrollView(
+                                  scrollDirection: Axis.horizontal,
+                                  child: SizedBox(
+                                    width: constraints.maxWidth < 1140
+                                        ? 1140
+                                        : constraints.maxWidth,
+                                    child: Column(
+                                      children: [
+                                        if (entries.isNotEmpty)
+                                          const SizedBox(
+                                            height: 28,
+                                            child: Row(
+                                              children: [
+                                                SizedBox(width: 48),
+                                                Expanded(
+                                                  child: Text('Merchant'),
+                                                ),
+                                                SizedBox(
+                                                  width: 154,
+                                                  child: Text(
+                                                    'Spending / coverage',
+                                                  ),
+                                                ),
+                                                SizedBox(
+                                                  width: 202,
+                                                  child: Text('Category'),
+                                                ),
+                                                SizedBox(
+                                                  width: 184,
+                                                  child: Text('Essentiality'),
+                                                ),
+                                                SizedBox(
+                                                  width: 202,
+                                                  child: Text('Expense Type'),
+                                                ),
+                                                SizedBox(width: 48),
+                                              ],
+                                            ),
+                                          ),
+                                        Expanded(
+                                          child: _reviewEntries(entries, total),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                        ),
+                      ),
+                    ],
+                    if (showReview && !showTable)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        child: Text(
+                          _view == 'classified'
+                              ? 'No classified merchants yet.'
+                              : _view == 'na'
+                              ? 'No merchants marked NA.'
+                              : 'No unclassified merchants in this selection.',
+                        ),
+                      ),
+                    if (_status != null)
+                      Text(
+                        _status!,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    if (_changed.isNotEmpty)
+                      Text(
+                        '${_changed.length} unsaved changes · save to update classification progress',
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    if (showReview || _changed.isNotEmpty)
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: Wrap(
+                          alignment: WrapAlignment.end,
+                          spacing: 8,
+                          runSpacing: 4,
+                          children: [
+                            if (_changed.isNotEmpty)
+                              TextButton(
+                                onPressed: _saving ? null : _discardDraft,
+                                child: const Text('Discard'),
+                              ),
+                            FilledButton(
+                              onPressed: _changed.isEmpty || _saving
+                                  ? null
+                                  : _save,
+                              child: Text(_saving ? 'Saving…' : 'Save changes'),
+                            ),
+                          ],
+                        ),
+                      ),
+                  ],
                 ],
               ),
             ),

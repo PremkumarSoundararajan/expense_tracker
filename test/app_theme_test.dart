@@ -72,6 +72,8 @@ void main() {
           reason: '$role contrast in $name theme',
         );
       }
+      expect(scheme.primary, accents.teal.icon);
+      expect(semantic.success, isNot(scheme.primary));
       expect(
         _contrast(scheme.outlineVariant, scheme.surface),
         greaterThanOrEqualTo(3),

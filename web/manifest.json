@@ -4,7 +4,7 @@
     "start_url": ".",
     "display": "standalone",
     "background_color": "#F7F9F8",
-    "theme_color": "#1B4D3E",
+    "theme_color": "#236A7A",
     "description": "Pocket Ledger personal expense tracker.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,

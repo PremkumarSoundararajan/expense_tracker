@@ -159,12 +159,10 @@ class _SpendingSpotTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final name = spot.name.isEmpty ? 'Unspecified spending spot' : spot.name;
-    final metrics =
-        '${formatFullCurrency(spot.total, currencySymbol)} total  ·  '
-        '${formatFullCurrency(spot.averageMonthly, currencySymbol)} avg/mo';
+    final total = formatFullCurrency(spot.total, currencySymbol);
     return Semantics(
       button: true,
-      label: '$rank. $name. $metrics',
+      label: '$rank. $name. Total spend: $total',
       child: InkWell(
         key: ValueKey('favourite-spending-spot-${spot.key}'),
         borderRadius: BorderRadius.circular(12),
@@ -191,11 +189,9 @@ class _SpendingSpotTile extends StatelessWidget {
               const SizedBox(width: 8),
               Flexible(
                 child: Tooltip(
-                  message:
-                      'Total: ${formatFullCurrency(spot.total, currencySymbol)} · '
-                      'Average: ${formatFullCurrency(spot.averageMonthly, currencySymbol)}/month',
+                  message: 'Total spend: $total',
                   child: Text(
-                    metrics,
+                    total,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: theme.textTheme.bodySmall,

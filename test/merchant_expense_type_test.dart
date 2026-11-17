@@ -86,7 +86,13 @@ void main() {
         ),
         true,
       );
+      final coverageInfo = find.byTooltip('How coverage is calculated');
+      await tester.ensureVisible(coverageInfo);
+      await tester.tap(coverageInfo);
+      await tester.pumpAndSettle();
       expect(find.textContaining('Expense Type → budgets'), findsOneWidget);
+      await tester.tap(find.text('Done'));
+      await tester.pumpAndSettle();
       print(
         'Expand 1000 transactions: ${watch.elapsedMilliseconds}ms; built ${built.evaluate().length} transaction widgets',
       );

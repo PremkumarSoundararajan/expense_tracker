@@ -292,22 +292,31 @@ void main() {
         await tester.pumpAndSettle();
         if (mode == 'empty') {
           expect(find.text('No spending data yet'), findsOneWidget);
-          expect(find.text('Identified Baseline'), findsNothing);
+          expect(
+            find.byKey(const ValueKey('essential-monthly-average')),
+            findsNothing,
+          );
         } else if (mode == 'unknown' || mode == 'excluded') {
           expect(
             find.text("Savings insights aren't ready yet"),
             findsOneWidget,
           );
-          expect(find.text('Potentially Adjustable'), findsNothing);
+          expect(find.text('Potentially Flexible'), findsNothing);
           await tester.tap(find.text('Classify Expenses'));
           expect(classify, isTrue);
         } else {
-          expect(find.text('Identified Baseline'), findsOneWidget);
+          expect(
+            find.byKey(const ValueKey('essential-monthly-average')),
+            findsOneWidget,
+          );
           expect(
             find.textContaining(mode == 'partial' ? '60.0%' : '100.0%'),
             findsOneWidget,
           );
-          expect(find.text('Potentially Adjustable'), findsOneWidget);
+          expect(
+            find.byKey(const ValueKey('potentially-adjustable-plan-launch')),
+            findsOneWidget,
+          );
         }
       });
     }

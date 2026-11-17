@@ -47,6 +47,7 @@ void main() {
   Future<void> panel(
     WidgetTester tester, {
     bool direct = false,
+    bool dark = false,
     List<Transaction>? rows,
   }) async {
     // Keep queue membership checks independent of mobile list virtualization.
@@ -57,6 +58,8 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         theme: AppTheme.light,
+        darkTheme: AppTheme.dark,
+        themeMode: dark ? ThemeMode.dark : ThemeMode.light,
         home: Scaffold(
           body: MerchantBaselinePanel(
             showRemainingInitially: direct,
@@ -86,11 +89,19 @@ void main() {
     await tester.pumpAndSettle();
   }
 
+  testWidgets('classification summary renders in dark theme', (tester) async {
+    await panel(tester, dark: true);
+    expect(find.byKey(const ValueKey('baseline-classified')), findsOneWidget);
+    expect(find.byKey(const ValueKey('baseline-unclassified')), findsOneWidget);
+    expect(find.byTooltip('How coverage is calculated'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets(
     '80 percent is an optional stopping point; remaining and classified are separate',
     (tester) async {
       await panel(tester);
-      expect(find.text('80.0% of spending'), findsOneWidget);
+      expect(find.text('80.0%'), findsOneWidget);
       expect(find.byKey(const ValueKey('baseline-classified')), findsOneWidget);
       expect(
         find.byKey(const ValueKey('baseline-unclassified')),
@@ -98,10 +109,12 @@ void main() {
       );
       expect(find.byType(TextField), findsNothing);
       expect(find.text('Merchant'), findsNothing);
-      expect(find.text('20.0% of spending'), findsOneWidget);
-      expect(find.text('80.0% of spending'), findsOneWidget);
+      expect(find.textContaining('20.0% ·'), findsOneWidget);
       expect(find.text('0 unsaved classifications'), findsNothing);
-      expect(find.textContaining('You can stop here'), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('baseline-target-reached')),
+        findsOneWidget,
+      );
       expect(find.byTooltip('View transactions'), findsNothing);
       await tester.tap(find.byKey(const ValueKey('baseline-unclassified')));
       await tester.pumpAndSettle();
@@ -128,7 +141,7 @@ void main() {
     expect(find.text('Beta · 1'), findsOneWidget);
     expect(find.text('Gamma · 1'), findsOneWidget);
     expect(find.text('Alpha · 1'), findsNothing);
-    expect(find.textContaining('You can stop here'), findsNothing);
+    expect(find.byKey(const ValueKey('baseline-target-reached')), findsNothing);
   });
 
   testWidgets(

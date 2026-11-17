@@ -176,8 +176,10 @@ class AccentColors extends ThemeExtension<AccentColors> {
 }
 
 abstract final class AppTheme {
-  static const _brand = Color(0xFF1B4D3E);
-  static const _brandDarkMode = Color(0xFF9DD7C2);
+  static const _brandTeal = Color(0xFF236A7A);
+  static const _brandTealDark = Color(0xFF8FD3E0);
+  static const _successLight = Color(0xFF1B4D3E);
+  static const _successDark = Color(0xFF9DD7C2);
   static const _errorLight = Color(0xFFB3261E);
   static const _errorDark = Color(0xFFFFB4AB);
 
@@ -186,7 +188,7 @@ abstract final class AppTheme {
 
   static ThemeData _build(Brightness brightness) {
     final isLight = brightness == Brightness.light;
-    final primary = isLight ? _brand : _brandDarkMode;
+    final primary = isLight ? _brandTeal : _brandTealDark;
     final surface = isLight ? const Color(0xFFF8F8F8) : const Color(0xFF121212);
     final onSurface = isLight
         ? const Color(0xFF1A1A1A)
@@ -200,7 +202,7 @@ abstract final class AppTheme {
     final outline = isLight ? const Color(0xFF6A6A6A) : const Color(0xFF909090);
     final colorScheme =
         ColorScheme.fromSeed(
-          seedColor: _brand,
+          seedColor: _brandTeal,
           brightness: brightness,
           primary: primary,
           secondary: primary,
@@ -209,29 +211,29 @@ abstract final class AppTheme {
           error: isLight ? _errorLight : _errorDark,
         ).copyWith(
           primary: primary,
-          onPrimary: isLight ? Colors.white : const Color(0xFF00382B),
+          onPrimary: isLight ? Colors.white : const Color(0xFF003840),
           primaryContainer: isLight
-              ? const Color(0xFFDDECE5)
-              : const Color(0xFF00513E),
+              ? const Color(0xFFD6EEF2)
+              : const Color(0xFF1E3A41),
           onPrimaryContainer: isLight
-              ? const Color(0xFF173B30)
-              : const Color(0xFFB7F1DC),
+              ? const Color(0xFF103B42)
+              : const Color(0xFFC6F1F6),
           secondary: primary,
-          onSecondary: isLight ? Colors.white : const Color(0xFF00382B),
+          onSecondary: isLight ? Colors.white : const Color(0xFF003840),
           secondaryContainer: isLight
-              ? const Color(0xFFDDECE5)
-              : const Color(0xFF00513E),
+              ? const Color(0xFFD6EEF2)
+              : const Color(0xFF1E3A41),
           onSecondaryContainer: isLight
-              ? const Color(0xFF173B30)
-              : const Color(0xFFB7F1DC),
+              ? const Color(0xFF103B42)
+              : const Color(0xFFC6F1F6),
           tertiary: primary,
-          onTertiary: isLight ? Colors.white : const Color(0xFF00382B),
+          onTertiary: isLight ? Colors.white : const Color(0xFF003840),
           tertiaryContainer: isLight
-              ? const Color(0xFFDDECE5)
-              : const Color(0xFF00513E),
+              ? const Color(0xFFD6EEF2)
+              : const Color(0xFF1E3A41),
           onTertiaryContainer: isLight
-              ? const Color(0xFF173B30)
-              : const Color(0xFFB7F1DC),
+              ? const Color(0xFF103B42)
+              : const Color(0xFFC6F1F6),
           error: isLight ? _errorLight : _errorDark,
           onError: isLight ? Colors.white : const Color(0xFF690005),
           errorContainer: isLight
@@ -267,7 +269,7 @@ abstract final class AppTheme {
           inverseSurface: isLight
               ? const Color(0xFF2E2E2E)
               : const Color(0xFFE6E6E6),
-          inversePrimary: isLight ? _brandDarkMode : _brand,
+          inversePrimary: isLight ? _brandTealDark : _brandTeal,
         );
     final accentColors = AccentColors(
       teal: AccentColorPair(
@@ -301,7 +303,7 @@ abstract final class AppTheme {
       headerLight: isLight ? const Color(0xFF236A7A) : const Color(0xFF1E5660),
       onHeader: Colors.white,
       headerTrack: isLight ? const Color(0xA6FFFFFF) : const Color(0x42FFFFFF),
-      success: isLight ? _brand : _brandDarkMode,
+      success: isLight ? _successLight : _successDark,
       onSuccess: isLight ? Colors.white : const Color(0xFF00382B),
       successContainer: isLight
           ? const Color(0xFFDDECE5)
