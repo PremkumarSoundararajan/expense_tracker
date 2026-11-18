@@ -137,4 +137,109 @@ void main() {
       },
     );
   }
+
+  for (final width in [390.0, 1280.0]) {
+    testWidgets('swiping back from merchants reaches the header at $width', (
+      tester,
+    ) async {
+      SharedPreferences.setMockInitialValues({});
+      tester.view.physicalSize = Size(width, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final store = MerchantClassificationStore('scroll-handoff');
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.light,
+          home: Scaffold(
+            appBar: AppBar(title: const Text('Insights')),
+            body: SingleChildScrollView(
+              key: const ValueKey('insights-page'),
+              child: Column(
+                children: [
+                  const SizedBox(height: 400),
+                  MerchantBaselinePanel(
+                    showClassifiedInitially: true,
+                    transactions: [
+                      for (var i = 0; i < 20; i++)
+                        Transaction(
+                          id: '$i',
+                          description:
+                              'Merchant ${String.fromCharCode(65 + i)}',
+                          date: DateTime(2025, 1, 1),
+                          amount: 100 - i.toDouble(),
+                          category: 'Food',
+                          categoryId: 'food',
+                          baselineGroup: 'Essential',
+                          expenseType: ExpenseType.regular,
+                        ),
+                    ],
+                    categories: const [
+                      ExpenseCategory(
+                        id: 'food',
+                        parentId: 'food-household',
+                        name: 'Food',
+                      ),
+                    ],
+                    legacyMappings: const [],
+                    store: store,
+                    currencySymbol: r'$',
+                    historyComplete: true,
+                    onSaved: (_) async => 'Saved',
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final list = find.byKey(
+        ValueKey(
+          width < 1140 ? 'mobile-merchant-list' : 'desktop-merchant-list',
+        ),
+      );
+      await tester.ensureVisible(list);
+      await tester.pumpAndSettle();
+      final outer = tester.state<ScrollableState>(
+        find
+            .descendant(
+              of: find.byKey(const ValueKey('insights-page')),
+              matching: find.byType(Scrollable),
+            )
+            .first,
+      );
+      final inner = tester.state<ScrollableState>(
+        find.descendant(of: list, matching: find.byType(Scrollable)).first,
+      );
+      await tester.dragFrom(const Offset(180, 500), const Offset(0, -450));
+      await tester.pumpAndSettle();
+      expect(inner.position.pixels, greaterThan(0));
+      inner.position.jumpTo(inner.position.maxScrollExtent);
+      await tester.pumpAndSettle();
+      final beforeBottomSwipe = outer.position.pixels;
+      await tester.dragFrom(const Offset(180, 500), const Offset(0, -200));
+      await tester.pumpAndSettle();
+      if (beforeBottomSwipe < outer.position.maxScrollExtent) {
+        expect(outer.position.pixels, greaterThan(beforeBottomSwipe));
+      }
+      inner.position.jumpTo(0);
+      await tester.pumpAndSettle();
+      final beforeTopSwipe = outer.position.pixels;
+      await tester.dragFrom(const Offset(180, 500), const Offset(0, 200));
+      await tester.pumpAndSettle();
+      expect(outer.position.pixels, lessThan(beforeTopSwipe));
+      for (var i = 0; i < 5; i++) {
+        await tester.dragFrom(const Offset(180, 300), const Offset(0, 500));
+        await tester.pumpAndSettle();
+      }
+      expect(outer.position.pixels, lessThan(beforeTopSwipe));
+      final header = find.byKey(const ValueKey('baseline-classified'));
+      expect(header.hitTestable(), findsOneWidget);
+      await tester.tap(header);
+      await tester.pumpAndSettle();
+      expect(list, findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+  }
 }

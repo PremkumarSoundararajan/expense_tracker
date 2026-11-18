@@ -183,11 +183,15 @@ const _insights = [
     _HelpPoint('Unclassified', 'Organize merchants that still need choices.'),
     _HelpPoint(
       'Classified',
-      'View spending charts, then open the merchant table to review your choices.',
+      'Expand Classified to review choices. Expand Unclassified or Excluded to work with those merchants.',
     ),
     _HelpPoint(
       'Counts and percentages',
       'Counts show merchants. Percentages show their share of spending.',
+    ),
+    _HelpPoint(
+      'Unsaved changes',
+      'When you collapse or switch sections, save your changes or ignore them to continue.',
     ),
     _HelpPoint(
       'Focus your effort',
@@ -230,25 +234,21 @@ const _insights = [
   _HelpTopic('Review charts and classified merchants', [
     _HelpPoint(
       'Start with charts',
-      'Classified opens with Essentiality and Category views.',
+      'Open Savings insights to see the Essentiality and Category charts below the monthly averages.',
     ),
     _HelpPoint(
       'Open the table',
       'Tap a chart or Review classified merchants to edit your choices.',
     ),
     _HelpPoint(
-      'Return',
-      'Back to charts returns to the selected view without discarding unsaved edits.',
-    ),
-    _HelpPoint(
       'Coverage',
-      'Each chart shows its own classification coverage, using total eligible history and transaction exceptions.',
+      'Each chart uses total eligible history and transaction exceptions. Its totals can differ from the monthly averages above.',
     ),
   ]),
   _HelpTopic('Bulk exclude small merchants', [
     _HelpPoint(
       'Set a limit',
-      'In Unclassified, open Bulk exclude small merchants, enter an amount and choose Exclude.',
+      'When an unclassified merchant has at least 100 in total spending, open Bulk exclude small merchants, enter an amount and choose Exclude.',
     ),
     _HelpPoint(
       'What is compared',

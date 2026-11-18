@@ -78,6 +78,7 @@ void main() {
         find.byKey(const ValueKey('transaction-type-tx-0')),
       );
       expect(rowType.value, 'Regular');
+      await tester.ensureVisible(find.text('Save changes'));
       await tester.tap(find.text('Save changes'));
       await tester.pumpAndSettle();
       expect(

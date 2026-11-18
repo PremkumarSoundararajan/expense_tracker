@@ -32,9 +32,7 @@ class _SpendingBreakdownState extends State<SpendingBreakdown> {
       (sum, unit) => (sum * 31 + unit) & 0x7fffffff,
     );
     const tints = [0.62, 0.74, 0.86, 1.0];
-    return Theme.of(context)
-        .colorScheme
-        .primary
+    return Theme.of(context).colorScheme.primary
         .withValues(alpha: tints[hash % tints.length]);
   }
 
@@ -146,6 +144,7 @@ class _SpendingBreakdownState extends State<SpendingBreakdown> {
             LayoutBuilder(
               builder: (_, constraints) {
                 final negative = data.items.any((i) => i.amount < 0);
+                final chartSize = (constraints.maxWidth * .4).clamp(0.0, 144.0);
                 final legend = Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [for (final item in data.items) label(item, data)],
@@ -154,8 +153,8 @@ class _SpendingBreakdownState extends State<SpendingBreakdown> {
                   label:
                       'Essentiality spending donut. ${data.items.map((i) => '${i.name}: ${money(i.amount)}, ${data.percent(i).toStringAsFixed(1)} percent').join('. ')}',
                   child: SizedBox(
-                    width: 144,
-                    height: 144,
+                    width: chartSize,
+                    height: chartSize,
                     child: CustomPaint(
                       key: const ValueKey('essentiality-donut'),
                       painter: _DonutPainter(
@@ -177,29 +176,13 @@ class _SpendingBreakdownState extends State<SpendingBreakdown> {
                     ],
                   );
                 }
-                return constraints.maxWidth < 480
-                    ? Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Center(
-                            child: InkWell(
-                              onTap: widget.onReviewMerchants,
-                              child: chart,
-                            ),
-                          ),
-                          legend,
-                        ],
-                      )
-                    : Row(
-                        children: [
-                          InkWell(
-                            onTap: widget.onReviewMerchants,
-                            child: chart,
-                          ),
-                          const SizedBox(width: 24),
-                          Expanded(child: legend),
-                        ],
-                      );
+                return Row(
+                  children: [
+                    InkWell(onTap: widget.onReviewMerchants, child: chart),
+                    const SizedBox(width: 16),
+                    Expanded(child: legend),
+                  ],
+                );
               },
             )
           else ...[

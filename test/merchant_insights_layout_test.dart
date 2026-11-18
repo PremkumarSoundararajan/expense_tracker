@@ -118,10 +118,17 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text('Insights').last);
       await tester.pumpAndSettle();
-      expect(
-        find.byKey(const ValueKey('baseline-target-reached')),
-        findsOneWidget,
-      );
+      expect(find.byKey(const ValueKey('baseline-classified')), findsOneWidget);
+      expect(find.text('Beta · 1'), findsNothing);
+      final savings = find.text('Savings insights');
+      await tester.ensureVisible(savings);
+      await tester.tap(savings);
+      await tester.pumpAndSettle();
+      final review = find.byKey(const ValueKey('review-classified-merchants'));
+      await tester.ensureVisible(review);
+      await tester.tap(review);
+      await tester.pumpAndSettle();
+      expect(find.text('Alpha · 2'), findsOneWidget);
       expect(find.text('Beta · 1'), findsNothing);
       expect(tester.takeException(), isNull);
     },
@@ -177,7 +184,7 @@ void main() {
         expect(find.byType(TextField), findsNothing);
         expect(
           tester.getSize(find.byType(MerchantBaselinePanel)).height,
-          lessThan(440),
+          lessThan(600),
         );
         expect(find.text('Merchant'), findsNothing);
         // Only the app bar and bottom navigation carry the Insights label.

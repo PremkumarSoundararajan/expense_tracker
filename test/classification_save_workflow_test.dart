@@ -80,16 +80,21 @@ void main() {
         expect(find.text('Ready to save'), findsOneWidget);
         await tester.tap(find.byTooltip('How coverage is calculated'));
         await tester.pumpAndSettle();
-        final coverage = tester.widget<Text>(
-          find.byKey(const ValueKey('baseline-coverage-summary')),
-        );
-        expect(coverage.data, contains('Classified 0.0%'));
-        expect(coverage.data, contains('Unclassified 100.0%'));
-        expect(coverage.data, contains(r'$100'));
         expect(
-          find.text('Available history · 2026-10-01 to 2026-10-01'),
+          find.descendant(
+            of: find.byKey(const ValueKey('baseline-coverage-classified')),
+            matching: find.text(r'0.0% · $0'),
+          ),
           findsOneWidget,
         );
+        expect(
+          find.descendant(
+            of: find.byKey(const ValueKey('baseline-coverage-remaining')),
+            matching: find.text(r'100.0% · $100'),
+          ),
+          findsOneWidget,
+        );
+        expect(find.text('2026-10-01 to 2026-10-01'), findsOneWidget);
         await tester.tap(find.text('Done'));
         await tester.pumpAndSettle();
         expect(find.textContaining('Top 80% done'), findsNothing);
@@ -99,6 +104,7 @@ void main() {
         await tester.pumpAndSettle();
         expect(find.text('Alpha · 1'), findsOneWidget);
         expect(find.text('Ready to save'), findsOneWidget);
+        await tester.ensureVisible(find.text('Save changes'));
         await tester.tap(find.text('Save changes'));
         await tester.pump();
         expect(find.text('Alpha · 1'), findsOneWidget);
@@ -118,15 +124,26 @@ void main() {
         expect(find.text('Alpha · 1'), findsNothing);
         await tester.tap(find.byTooltip('How coverage is calculated'));
         await tester.pumpAndSettle();
-        final savedCoverage = tester.widget<Text>(
-          find.byKey(const ValueKey('baseline-coverage-summary')),
+        expect(
+          find.descendant(
+            of: find.byKey(const ValueKey('baseline-coverage-classified')),
+            matching: find.text(r'100.0% · $100'),
+          ),
+          findsOneWidget,
         );
-        expect(savedCoverage.data, contains('Classified 100.0%'));
-        expect(savedCoverage.data, contains('Unclassified 0.0%'));
-        expect(savedCoverage.data, contains(r'$100'));
+        expect(
+          find.descendant(
+            of: find.byKey(const ValueKey('baseline-coverage-remaining')),
+            matching: find.text(r'0.0% · $0'),
+          ),
+          findsOneWidget,
+        );
         await tester.tap(find.text('Done'));
         await tester.pumpAndSettle();
         expect(store.index.apply(rows.single).expenseType, ExpenseType.regular);
+        await tester.ensureVisible(
+          find.byKey(const ValueKey('baseline-classified')),
+        );
         await tester.tap(find.byKey(const ValueKey('baseline-classified')));
         await tester.pumpAndSettle();
         await openClassifiedTable(tester);

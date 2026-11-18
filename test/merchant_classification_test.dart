@@ -435,7 +435,10 @@ void main() {
     expect(restored.pending, isEmpty);
     await tester.pumpWidget(panel(restored));
     await tester.pumpAndSettle();
-    expect(find.textContaining('1 unsaved changes'), findsOneWidget);
+    expect(
+      find.textContaining('1 merchant has unsaved changes'),
+      findsOneWidget,
+    );
     await tester.ensureVisible(find.text('Discard'));
     await tester.tap(find.text('Discard'));
     await tester.pumpAndSettle();

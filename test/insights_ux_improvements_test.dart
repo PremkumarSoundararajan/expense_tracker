@@ -310,7 +310,9 @@ void main() {
             findsOneWidget,
           );
           expect(
-            find.textContaining(mode == 'partial' ? '60.0%' : '100.0%'),
+            find.text(
+              mode == 'partial' ? '60.0% classified' : '100.0% classified',
+            ),
             findsOneWidget,
           );
           expect(

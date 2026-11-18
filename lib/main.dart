@@ -1538,6 +1538,7 @@ class _DashboardScreenState extends State<DashboardScreen>
 
   bool _showRemainingClassification = false;
   bool _reviewUnknownOnly = false;
+  bool _showClassifiedClassification = false;
   int _classificationEntry = 0;
 
   Future<void> _explainInsightLock(String feature) async {
@@ -1586,7 +1587,28 @@ class _DashboardScreenState extends State<DashboardScreen>
       _selectedTab = 2;
       _showRemainingClassification = true;
       _reviewUnknownOnly = unknownOnly;
+      _showClassifiedClassification = false;
       _classificationEntry++;
+    });
+  }
+
+  void _reviewClassifiedMerchants() {
+    final dashboard = ModalRoute.of(context);
+    if (dashboard != null) {
+      Navigator.of(context).popUntil((route) => route == dashboard);
+    }
+    setState(() {
+      _selectedTab = 2;
+      _showRemainingClassification = false;
+      _reviewUnknownOnly = false;
+      _showClassifiedClassification = true;
+      _classificationEntry++;
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final section = _baselineSectionKey.currentContext;
+      if (section != null) {
+        Scrollable.ensureVisible(section);
+      }
     });
   }
 
@@ -1594,6 +1616,7 @@ class _DashboardScreenState extends State<DashboardScreen>
     key: ValueKey('merchant-panel-$_classificationEntry'),
     showRemainingInitially: _showRemainingClassification,
     reviewUnknownInitially: _reviewUnknownOnly,
+    showClassifiedInitially: _showClassifiedClassification,
     transactions: _transactions,
     categories: _activeExpenseCategories,
     legacyMappings: _baselineMappings,
@@ -1680,6 +1703,8 @@ class _DashboardScreenState extends State<DashboardScreen>
           popAfterInsightsDismissal: true,
           onClassifyExpenses: () =>
               _reviewRemainingClassification(unknownOnly: false),
+          merchantClassificationIndex: _merchantStore.index,
+          onReviewClassifiedMerchants: _reviewClassifiedMerchants,
           onDraftChanged: _financialBaselineStore.saveDraft,
           onDraftCleared: _financialBaselineStore.clearDraft,
         ),
@@ -1978,6 +2003,7 @@ class _DashboardScreenState extends State<DashboardScreen>
         _selectedTab = 2;
         _showRemainingClassification = true;
         _reviewUnknownOnly = false;
+        _showClassifiedClassification = false;
         _classificationEntry++;
       });
       return;
@@ -3938,9 +3964,10 @@ class _DashboardScreenState extends State<DashboardScreen>
         selectedIndex: _selectedTab,
         onDestinationSelected: (index) => setState(() {
           _selectedTab = index;
-          if (_showRemainingClassification) {
+          if (_showRemainingClassification || _showClassifiedClassification) {
             _showRemainingClassification = false;
             _reviewUnknownOnly = false;
+            _showClassifiedClassification = false;
             _classificationEntry++;
           }
         }),

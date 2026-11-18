@@ -116,6 +116,144 @@ void main() {
     expect(restored.index.apply(rows[1]).category, 'Medical');
   });
 
+  for (final (label, amounts, expected) in [
+    ('none', <double>[], false),
+    ('combined above 100', <double>[99.99, 90], false),
+    ('exactly 100', <double>[60, 40], true),
+    ('above 100', <double>[100.01], true),
+  ]) {
+    testWidgets('bulk exclusion visibility: $label', (tester) async {
+      tester.view.physicalSize = const Size(1280, 1000);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final store = MerchantClassificationStore('visibility-$label');
+      await store.save([
+        {
+          'id': 'm:classified',
+          'kind': 'merchant',
+          'name': 'Classified',
+          'aliases': ['Classified'],
+          'category': 'Food',
+          'categoryId': 'food',
+          'group': 'Essential',
+          'expenseType': 'Regular',
+        },
+        {
+          'id': 'm:excluded',
+          'kind': 'merchant',
+          'name': 'Excluded',
+          'aliases': ['Excluded'],
+          'na': true,
+        },
+      ]);
+      final unclassified = [
+        for (var i = 0; i < amounts.length; i++)
+          expense(
+            label == 'exactly 100' ? 'Alpha' : ['Alpha', 'Beta'][i],
+            amounts[i],
+            'item-$i',
+          ),
+      ];
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.light,
+          home: Scaffold(
+            body: MerchantBaselinePanel(
+              transactions: [
+                expense('Classified', 500, 'classified'),
+                expense('Excluded', 500, 'excluded'),
+                ...unclassified,
+              ],
+              categories: const [
+                ExpenseCategory(
+                  id: 'food',
+                  parentId: 'food-household',
+                  name: 'Food',
+                ),
+              ],
+              legacyMappings: const [],
+              store: store,
+              currencySymbol: r'$',
+              showRemainingInitially: true,
+              historyComplete: true,
+              onSaved: (_) async => 'Saved',
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey('na-threshold-toggle')),
+        expected ? findsOneWidget : findsNothing,
+      );
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  testWidgets('bulk exclusion visibility follows saved classification', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1280, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final store = MerchantClassificationStore('visibility-save');
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light,
+        home: Scaffold(
+          body: MerchantBaselinePanel(
+            transactions: [
+              expense('Alpha', 100, 'a'),
+              expense('Beta', 50, 'b'),
+            ],
+            categories: const [
+              ExpenseCategory(
+                id: 'food',
+                parentId: 'food-household',
+                name: 'Food',
+              ),
+            ],
+            legacyMappings: const [],
+            store: store,
+            currencySymbol: r'$',
+            showRemainingInitially: true,
+            historyComplete: true,
+            onSaved: (changes) async {
+              await store.save(changes);
+              return 'Saved';
+            },
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final toggle = find.byKey(const ValueKey('na-threshold-toggle'));
+    expect(toggle, findsOneWidget);
+    final search = find.byKey(const ValueKey('baseline-search-remaining'));
+    await tester.ensureVisible(search);
+    await tester.enterText(search, 'Beta');
+    await tester.pumpAndSettle();
+    expect(toggle, findsOneWidget);
+    await tester.enterText(search, '');
+    await tester.pumpAndSettle();
+    final group = find.byKey(const ValueKey('merchant-group-alpha'));
+    await tester.ensureVisible(group);
+    await tester.tap(group);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Essential').last);
+    await tester.pumpAndSettle();
+    expect(toggle, findsOneWidget);
+    final save = find.text('Save changes');
+    await tester.ensureVisible(save);
+    await tester.tap(save);
+    await tester.pumpAndSettle();
+    expect(toggle, findsNothing);
+    expect(find.text('Beta · 1'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   for (final width in [1280.0, 390.0]) {
     testWidgets('threshold preview validation save and remove NA at $width', (
       tester,
@@ -144,7 +282,7 @@ void main() {
           home: Scaffold(
             body: SingleChildScrollView(
               child: MerchantBaselinePanel(
-                transactions: ledger(),
+                transactions: [...ledger(), expense('Delta', 100, 'e')],
                 categories: const [
                   ExpenseCategory(
                     id: 'food',
@@ -189,7 +327,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('Exclude all merchants <'), findsOneWidget);
       expect(
-        find.text(r'2 merchants · $100 · 10.0% of spending'),
+        find.text(r'3 merchants · $200 · 18.2% of spending'),
         findsOneWidget,
       );
       expect(store.records.values.where((r) => r['na'] == true), isEmpty);
@@ -214,20 +352,19 @@ void main() {
       await tester.tap(find.byTooltip('How coverage is calculated'));
       await tester.pumpAndSettle();
       expect(
-        tester
-            .widget<Text>(
-              find.byKey(const ValueKey('baseline-coverage-summary')),
-            )
-            .data,
-        contains('Excluded'),
+        find.descendant(
+          of: find.byKey(const ValueKey('baseline-coverage-na')),
+          matching: find.text(r'18.2% · $200'),
+        ),
+        findsOneWidget,
       );
       await tester.tap(find.text('Done'));
       await tester.pumpAndSettle();
       expect(
-        find.textContaining('2 additional merchants excluded'),
+        find.textContaining('3 additional merchants excluded'),
         findsOneWidget,
       );
-      expect(store.records.values.where((r) => r['na'] == true).length, 2);
+      expect(store.records.values.where((r) => r['na'] == true).length, 3);
       expect(store.records['m:alpha']?['na'], isNot(true));
       expect(
         store.index.apply(ledger().first).expenseType,
@@ -254,7 +391,7 @@ void main() {
         store.records.values
             .where((r) => r['na'] == true && r['deleted'] != true)
             .length,
-        1,
+        2,
       );
       expect(tester.takeException(), isNull);
     });

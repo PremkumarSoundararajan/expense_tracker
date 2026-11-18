@@ -109,12 +109,8 @@ void main() {
       );
       expect(find.byType(TextField), findsNothing);
       expect(find.text('Merchant'), findsNothing);
-      expect(find.textContaining('20.0% ·'), findsOneWidget);
+      expect(find.byTooltip('Unclassified: 20.0%'), findsNWidgets(2));
       expect(find.text('0 unsaved classifications'), findsNothing);
-      expect(
-        find.byKey(const ValueKey('baseline-target-reached')),
-        findsOneWidget,
-      );
       expect(find.byTooltip('View transactions'), findsNothing);
       await tester.tap(find.byKey(const ValueKey('baseline-unclassified')));
       await tester.pumpAndSettle();

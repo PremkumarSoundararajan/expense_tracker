@@ -62,6 +62,14 @@ void main() {
       await tester.pumpWidget(app(snapshot()));
       await tester.pumpAndSettle();
       expect(find.byKey(const ValueKey('essentiality-donut')), findsOneWidget);
+      final chart = tester.getRect(
+        find.byKey(const ValueKey('essentiality-donut')),
+      );
+      for (final name in ['Essential', 'Potentially Flexible']) {
+        final legend = tester.getRect(find.text(name));
+        expect(legend.left, greaterThanOrEqualTo(chart.right));
+        expect(legend.top, lessThan(chart.bottom));
+      }
       expect(
         find.text('Essentiality classified: 80.0% of spending'),
         findsOneWidget,
@@ -114,6 +122,33 @@ void main() {
       expect(tester.takeException(), isNull);
     });
   }
+  testWidgets('phone chart and legend fit with large text', (tester) async {
+    tester.view.physicalSize = const Size(320, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: MediaQuery(
+          data: const MediaQueryData(textScaler: TextScaler.linear(2)),
+          child: Scaffold(
+            body: SingleChildScrollView(
+              padding: const EdgeInsets.all(16),
+              child: SpendingBreakdown(data: snapshot(), currencySymbol: r'$'),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final chart = tester.getRect(
+      find.byKey(const ValueKey('essentiality-donut')),
+    );
+    final legend = tester.getRect(find.text('Potentially Flexible'));
+    expect(legend.left, greaterThanOrEqualTo(chart.right));
+    expect(legend.right, lessThanOrEqualTo(320));
+    expect(tester.takeException(), isNull);
+  });
   testWidgets('empty dimension offers a friendly state', (tester) async {
     await tester.pumpWidget(
       MaterialApp(

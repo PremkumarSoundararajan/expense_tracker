@@ -97,6 +97,9 @@ void main() {
     await tester.tap(find.text('Done'));
     await tester.pumpAndSettle();
 
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('open-full-spending-trend')),
+    );
     await tester.tap(find.byKey(const ValueKey('open-full-spending-trend')));
     await tester.pumpAndSettle();
     expect(find.text('Last 6 completed months'), findsOneWidget);

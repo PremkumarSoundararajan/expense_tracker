@@ -4,13 +4,17 @@ import '../app_theme.dart';
 import '../models/financial_baseline.dart';
 import '../models/expense_category.dart';
 import '../models/transaction.dart';
+import '../services/classified_spending_breakdown_service.dart';
+import '../services/favourite_spending_spots_service.dart';
 import '../services/financial_baseline_service.dart';
 import '../services/financial_baseline_insights_service.dart';
+import '../services/merchant_classification_service.dart';
 import '../services/merchant_discovery_service.dart';
 import '../services/spending_target_store.dart';
 import '../utils/currency_format.dart';
 import 'app_linear_progress_indicator.dart';
 import 'spending_reduction_planner_screen.dart';
+import 'spending_breakdown.dart';
 
 class FinancialBaselineScreen extends StatefulWidget {
   const FinancialBaselineScreen({
@@ -29,6 +33,8 @@ class FinancialBaselineScreen extends StatefulWidget {
     this.insightsOnly = false,
     this.popAfterInsightsDismissal = false,
     this.onClassifyExpenses,
+    this.merchantClassificationIndex,
+    this.onReviewClassifiedMerchants,
   });
 
   final SpendingTargetStore? targetStore;
@@ -37,6 +43,8 @@ class FinancialBaselineScreen extends StatefulWidget {
   final bool insightsOnly;
   final bool popAfterInsightsDismissal;
   final VoidCallback? onClassifyExpenses;
+  final MerchantClassificationIndex? merchantClassificationIndex;
+  final VoidCallback? onReviewClassifiedMerchants;
   final List<Transaction> transactions;
   final List<FinancialBaselineMapping> initialMappings;
   final List<ExpenseCategory> categories;
@@ -65,6 +73,7 @@ class _FinancialBaselineScreenState extends State<FinancialBaselineScreen> {
   late List<FinancialBaselineMapping> _committedMappings;
   _MerchantSort _merchantSort = _MerchantSort.highestSpending;
   bool _isSaving = false;
+  bool _leavingForMerchantReview = false;
   bool _draftRestored = false;
   bool _saveReminderShownForBatch = false;
   bool _organizedExpanded = false;
@@ -74,6 +83,22 @@ class _FinancialBaselineScreenState extends State<FinancialBaselineScreen> {
   _MerchantSort? _unassignedSort;
   int? _changedCountCache;
   BaselineSpendingInsights? _insightsCache;
+  ClassifiedSpendingBreakdown? _breakdownCache;
+  late final _breakdownGroups = const FavouriteSpendingSpotsService()
+      .calculate(transactions: widget.transactions, allHistory: true)
+      .actual;
+  late final _breakdownIndex =
+      widget.merchantClassificationIndex ?? MerchantClassificationIndex([]);
+  ClassifiedSpendingBreakdown get _breakdown =>
+      _breakdownCache ??= const ClassifiedSpendingBreakdownService().build(
+        groups: _breakdownGroups,
+        index: _breakdownIndex,
+        categories: widget.categories,
+        legacyGroups: {
+          for (final match in _provider.analysis.matches)
+            match.transaction: match.assignedGroup?.label,
+        },
+      );
   DateTime? _insightsMonth;
   final List<String> _draftConflictMerchants = [];
   final Map<BaselineGroup, TextEditingController> _groupSearchControllers = {};
@@ -173,6 +198,7 @@ class _FinancialBaselineScreenState extends State<FinancialBaselineScreen> {
     _unassignedCache = null;
     _changedCountCache = null;
     _insightsCache = null;
+    _breakdownCache = null;
   }
 
   int _countChanges() {
@@ -1038,7 +1064,9 @@ class _FinancialBaselineScreenState extends State<FinancialBaselineScreen> {
         ),
       );
     }
-    if (widget.popAfterInsightsDismissal && mounted) {
+    if (widget.popAfterInsightsDismissal &&
+        mounted &&
+        !_leavingForMerchantReview) {
       Navigator.of(context).pop();
     }
   }
@@ -1391,7 +1419,19 @@ class _FinancialBaselineScreenState extends State<FinancialBaselineScreen> {
                   key: const ValueKey('baseline-average-period'),
                   style: Theme.of(context).textTheme.bodySmall,
                 ),
-                const SizedBox(height: 12),
+                const SizedBox(height: 16),
+                SpendingBreakdown(
+                  key: const ValueKey('insights-spending-breakdown'),
+                  data: _breakdown,
+                  currencySymbol: widget.currencySymbol,
+                  onReviewMerchants: widget.onReviewClassifiedMerchants == null
+                      ? null
+                      : () {
+                          _leavingForMerchantReview = true;
+                          widget.onReviewClassifiedMerchants!();
+                        },
+                ),
+                const SizedBox(height: 20),
                 Tooltip(
                   message: 'Open the full spending trend chart',
                   child: InkWell(
