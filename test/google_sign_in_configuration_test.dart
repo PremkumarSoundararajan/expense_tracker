@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pocket_ledger/services/google_sign_in_configuration.dart';
@@ -10,14 +12,7 @@ void main() {
     );
     expect(config.clientId, isNull);
     expect(config.serverClientId, isNull);
-    expect(
-      config.scopes,
-      contains('https://www.googleapis.com/auth/drive.file'),
-    );
-    expect(
-      config.scopes,
-      contains('https://www.googleapis.com/auth/spreadsheets'),
-    );
+    expect(config.scopes, ['https://www.googleapis.com/auth/drive.file']);
   });
   test('web on an Apple device keeps the web OAuth client', () {
     final config = createGoogleSignIn(
@@ -34,6 +29,19 @@ void main() {
     );
     expect(config.clientId, isNotNull);
     expect(config.serverClientId, config.clientId);
-    expect(config.scopes, hasLength(2));
+    expect(config.scopes, ['https://www.googleapis.com/auth/drive.file']);
+  });
+  test('native iOS email-hint sign-in also requests only per-file access', () {
+    final path = [
+      'ios',
+      'Runner',
+      'AppDelegate.swift',
+    ].join(Platform.pathSeparator);
+    final source = File(path).readAsStringSync();
+    expect(source, contains('https://www.googleapis.com/auth/drive.file'));
+    expect(
+      source,
+      isNot(contains('https://www.googleapis.com/auth/spreadsheets')),
+    );
   });
 }

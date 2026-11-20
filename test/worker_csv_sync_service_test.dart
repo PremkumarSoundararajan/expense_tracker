@@ -8,8 +8,27 @@ import 'package:pocket_ledger/services/worker_csv_sync_service.dart';
 
 void main() {
   group('WorkerCsvSyncService', () {
+    test('blocks an older Worker before sending any statement', () async {
+      final methods = <String>[];
+      final service = WorkerCsvSyncService(
+        MockClient((request) async {
+          methods.add(request.method);
+          return http.Response('{"reviewPreview":true}', 200);
+        }),
+      );
+      await expectLater(
+        service.previewCsv(
+          accessToken: 'token',
+          spreadsheetId: 'target',
+          csv: 'Date,Description,Amount',
+        ),
+        throwsStateError,
+      );
+      expect(methods, ['GET']);
+      service.close();
+    });
     test(
-      'preview returns replacement spreadsheet ID from Worker response',
+      'preview rejects a different spreadsheet ID from Worker response',
       () async {
         final client = MockClient((request) async {
           if (request.method == 'GET') {
@@ -19,6 +38,7 @@ void main() {
                 'reviewPreview': true,
                 'reviewedCategoryUpdates': true,
                 'expenseTypeReview': true,
+                'fixedSpreadsheetTarget': true,
               }),
               200,
               headers: {'content-type': 'application/json'},
@@ -39,14 +59,14 @@ void main() {
         });
         final service = WorkerCsvSyncService(client);
 
-        final preview = await service.previewCsv(
-          accessToken: 'active-user-token',
-          spreadsheetId: 'deleted-sheet-id',
-          csv: 'Date,Description,Amount',
+        await expectLater(
+          service.previewCsv(
+            accessToken: 'active-user-token',
+            spreadsheetId: 'deleted-sheet-id',
+            csv: 'Date,Description,Amount',
+          ),
+          throwsStateError,
         );
-
-        expect(preview.spreadsheetId, 'replacement-sheet-id');
-        expect(preview.spreadsheetCreated, isTrue);
         service.close();
       },
     );

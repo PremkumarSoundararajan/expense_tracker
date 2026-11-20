@@ -83,9 +83,19 @@ void main() {
       );
       await tester.pumpAndSettle();
       expect(find.text('60.0%'), findsOneWidget);
-      expect(find.textContaining(r'1 merchant · $60'), findsOneWidget);
-      expect(find.textContaining(r'1 merchant · $30'), findsOneWidget);
-      expect(find.textContaining(r'1 merchant · $10'), findsOneWidget);
+      for (final (key, summary) in [
+        ('baseline-classified', r'1 merchant · $60 · 60.0% of spending'),
+        ('baseline-unclassified', r'1 merchant · $30 · 30.0% of spending'),
+        ('review-na', r'1 merchant · $10 · 10.0% of spending'),
+      ]) {
+        expect(
+          find.descendant(
+            of: find.byKey(ValueKey(key)),
+            matching: find.text(summary),
+          ),
+          findsOneWidget,
+        );
+      }
       expect(find.byTooltip('Classified: 60.0%'), findsNWidgets(2));
       expect(find.byTooltip('Unclassified: 30.0%'), findsNWidgets(2));
       expect(find.byTooltip('Excluded: 10.0%'), findsNWidgets(2));
@@ -163,6 +173,10 @@ void main() {
 
       await tapKey('baseline-classified');
       expect(find.text('Alpha · 1'), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('merchant-coverage-scope')),
+        findsNothing,
+      );
       await tapKey('merchant-group-alpha');
       await tester.tap(find.text('Potentially Flexible').last);
       await tester.pumpAndSettle();
@@ -192,6 +206,10 @@ void main() {
       expect(store.draft, isEmpty);
       expect(saves, 2);
       expect(find.text('Beta · 1'), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('merchant-coverage-scope')),
+        findsNothing,
+      );
 
       await tapKey('merchant-category-beta');
       await tester.tap(find.text('Food').last);
@@ -211,6 +229,10 @@ void main() {
       await tester.tap(find.text('Ignore'));
       await tester.pumpAndSettle();
       expect(find.text('Excluded · 1'), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('merchant-coverage-scope')),
+        findsNothing,
+      );
       expect(store.records['m:beta'], isNull);
       await tapKey('baseline-unclassified');
       await tapKey('merchant-category-beta');
@@ -257,6 +279,7 @@ void main() {
     for (final section in ['Classified', 'Unclassified', 'Excluded']) {
       expect(find.byTooltip('$section: 0.0%'), findsOneWidget);
     }
+    expect(find.text(r'0 merchants · $0 · 0.0% of spending'), findsNWidgets(3));
     expect(find.byKey(const ValueKey('baseline-bar-classified')), findsNothing);
     await tester.tap(find.byTooltip('How coverage is calculated'));
     await tester.pumpAndSettle();

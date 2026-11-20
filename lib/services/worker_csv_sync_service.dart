@@ -48,6 +48,12 @@ class WorkerCsvSyncService {
     }
     final capabilities =
         jsonDecode(capabilityResponse.body) as Map<String, dynamic>;
+    if (capabilities['fixedSpreadsheetTarget'] != true) {
+      throw StateError(
+        'Update the Pocket Ledger Worker before importing. '
+        'The current Worker can create a replacement spreadsheet unexpectedly.',
+      );
+    }
     if (requireMerchantReview &&
         capabilities['merchantClassificationReview'] != true) {
       throw StateError(
@@ -81,8 +87,12 @@ class WorkerCsvSyncService {
       categoryConfig: categoryConfig,
     );
     final payload = jsonDecode(response.body) as Map<String, dynamic>;
+    if (payload['spreadsheetId'] != spreadsheetId ||
+        payload['spreadsheetCreated'] == true) {
+      throw StateError('The Worker returned a different spreadsheet target.');
+    }
     return WorkerCsvPreview(
-      spreadsheetId: payload['spreadsheetId']?.toString() ?? spreadsheetId,
+      spreadsheetId: spreadsheetId,
       spreadsheetCreated: payload['spreadsheetCreated'] == true,
       rows: (payload['rows'] as List<dynamic>? ?? const [])
           .map(

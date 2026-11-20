@@ -56,8 +56,7 @@ import UserNotifications
         withPresenting: presenter,
         hint: email,
         additionalScopes: [
-          "https://www.googleapis.com/auth/drive.file",
-          "https://www.googleapis.com/auth/spreadsheets"
+          "https://www.googleapis.com/auth/drive.file"
         ]
       ) { signInResult, error in
         self.emailSignInInProgress = false

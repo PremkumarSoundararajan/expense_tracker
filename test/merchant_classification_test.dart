@@ -477,6 +477,7 @@ void main() {
             'expenseTypeReview': true,
             'reviewPreview': true,
             'reviewedCategoryUpdates': true,
+            'fixedSpreadsheetTarget': true,
           }),
           200,
         );

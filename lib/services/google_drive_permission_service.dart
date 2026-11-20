@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:googleapis/drive/v3.dart' as drive;
-import 'package:googleapis/sheets/v4.dart' as sheets;
 
 class GoogleDrivePermissionService {
   GoogleDrivePermissionService(
@@ -17,10 +16,7 @@ class GoogleDrivePermissionService {
 
   void clearCachedPermissions() => _confirmedScopes.clear();
 
-  static const _requiredWriteScopes = [
-    drive.DriveApi.driveFileScope,
-    sheets.SheetsApi.spreadsheetsScope,
-  ];
+  static const _requiredWriteScopes = [drive.DriveApi.driveFileScope];
 
   Future<bool> hasDriveWriteScope() async {
     return _hasScope(drive.DriveApi.driveFileScope);

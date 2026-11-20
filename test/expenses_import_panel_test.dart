@@ -21,12 +21,15 @@ Future<void> openExpenses(
   bool dark = false,
   bool empty = false,
   List<Transaction>? transactions,
+  Map<String, Object>? preferences,
 }) async {
   tester.view.physicalSize = Size(width, 1000);
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
-  SharedPreferences.setMockInitialValues({'currency_symbol': r'$'});
+  SharedPreferences.setMockInitialValues(
+    preferences ?? {'currency_symbol': r'$'},
+  );
   await LocalTransactionStore(accountKey: 'expenses-panel@example.com')
       .saveCached(
         transactions ??
@@ -139,13 +142,68 @@ void main() {
 
     expect(find.text('Welcome to Pocket Ledger!'), findsOneWidget);
     expect(find.byType(BottomSheet), findsOneWidget);
-    await tester.tap(find.byType(ModalBarrier).last);
+    await tester.tapAt(const Offset(10, 10));
     await tester.pumpAndSettle();
     expect(find.text('Welcome to Pocket Ledger!'), findsNothing);
     expect(find.byType(BottomSheet), findsNothing);
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pumpAndSettle();
   });
+  testWidgets('currency selection updates expenses and persists its code', (
+    tester,
+  ) async {
+    await openExpenses(tester, width: 390);
+    await tester.tap(find.text('Settings').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Currency'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('MYR (RM)'));
+    await tester.pumpAndSettle();
+    expect(find.text('MYR (RM)'), findsOneWidget);
+    expect(
+      (await SharedPreferences.getInstance()).getString('currency_code'),
+      'MYR',
+    );
+    await tester.tap(find.text('Expenses').last);
+    await tester.pumpAndSettle();
+    expect(find.textContaining('RM10'), findsWidgets);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pumpAndSettle();
+  });
+  testWidgets(
+    'device currency is used on first launch and the override survives restart',
+    (tester) async {
+      tester.platformDispatcher.localeTestValue = const Locale('en', 'MY');
+      addTearDown(tester.platformDispatcher.clearLocaleTestValue);
+      final initial = {
+        'expense_category_setup_done_expenses-panel@example.com': true,
+      };
+      await openExpenses(tester, width: 390, preferences: initial);
+      expect(find.textContaining('RM10'), findsWidgets);
+      await tester.tap(find.text('Settings').last);
+      await tester.pumpAndSettle();
+      expect(find.text('MYR (RM)'), findsOneWidget);
+      await tester.tap(find.text('Currency'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('INR (₹)'));
+      await tester.pumpAndSettle();
+      final code = (await SharedPreferences.getInstance()).getString(
+        'currency_code',
+      );
+      expect(code, 'INR');
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pumpAndSettle();
+      tester.platformDispatcher.localeTestValue = const Locale('en', 'US');
+      await openExpenses(
+        tester,
+        width: 390,
+        preferences: {...initial, 'currency_code': code!},
+      );
+      expect(find.textContaining('₹10'), findsWidgets);
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pumpAndSettle();
+    },
+  );
   testWidgets(
     'Import Statements directly opens the device picker without source options or a link',
     (tester) async {

@@ -128,6 +128,7 @@ class _AccountDeletionScreenState extends State<AccountDeletionScreen> {
                     const SizedBox(height: 12),
                     for (final item in [
                       'Your “Expense Tracker DB” spreadsheet and its expense history',
+                      'Other ledger files not connected on this device must be deleted separately in Google Drive',
                       'Categories, merchant classifications, budgets and spending targets',
                       'Any remaining server records and previous email authorizations',
                       'This device’s saved app data and reminders',

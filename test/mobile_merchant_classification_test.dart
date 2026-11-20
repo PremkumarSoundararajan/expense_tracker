@@ -85,6 +85,20 @@ void main() {
                 .first,
           );
           await tester.pumpAndSettle();
+          final outer = tester.state<ScrollableState>(
+            find.ancestor(of: list, matching: find.byType(Scrollable)).first,
+          );
+          final top = tester.getTopLeft(control).dy;
+          if (top < 0 || top > size.height - 60) {
+            final position = outer.position;
+            position.jumpTo(
+              (position.pixels + top - 100).clamp(
+                position.minScrollExtent,
+                position.maxScrollExtent,
+              ),
+            );
+          }
+          await tester.pumpAndSettle();
           final bounds = tester.getRect(control);
           expect(bounds.left, greaterThanOrEqualTo(0));
           expect(bounds.right, lessThanOrEqualTo(size.width));

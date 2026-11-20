@@ -69,24 +69,13 @@ class AccountDeletionService {
       onProgress('Finding your Pocket Ledger spreadsheet');
       var ids = (journal['spreadsheetIds'] as List?)?.cast<String>().toSet();
       if (ids == null) {
-        ids = {...spreadsheetIds};
-        String? page;
-        do {
-          final response = await get(
-            Uri.https('www.googleapis.com', '/drive/v3/files', {
-              'q': "name = 'Expense Tracker DB' and mimeType = 'application/vnd.google-apps.spreadsheet' and 'me' in owners",
-              'fields': 'nextPageToken,files(id)',
-              'pageSize': '100',
-              'pageToken': ?page,
-            }),
-          );
-          _requireSuccess(response, 'Could not find the app spreadsheet.');
-          final data = jsonDecode(response.body) as Map<String, dynamic>;
-          for (final file in data['files'] as List? ?? []) {
-            ids.add((file as Map)['id'] as String);
-          }
-          page = data['nextPageToken'] as String?;
-        } while (page != null);
+        final account = accountEmail.trim().toLowerCase();
+        ids = {
+          ...spreadsheetIds,
+          ?prefs.getString('ledger_spreadsheet_id_$account'),
+          ?prefs.getString('ledger_spreadsheet_initializing_$account'),
+          ?prefs.getString('worker_spreadsheet_id_$account'),
+        }..remove('');
         journal['spreadsheetIds'] = ids.toList();
         await checkpoint();
       }
@@ -207,6 +196,7 @@ class AccountDeletionService {
     final account = email.trim().toLowerCase();
     const global = {
       'currency_symbol',
+      'currency_code',
       'monthly_target',
       'dark_mode_enabled',
       'daily_reminder_enabled',
@@ -226,6 +216,8 @@ class AccountDeletionService {
       'expense_categories_v1_',
       'merchant_classifications_v1_',
       'worker_spreadsheet_id_',
+      'ledger_spreadsheet_id_',
+      'ledger_spreadsheet_initializing_',
       'expense_category_setup_done_',
     ];
     for (final key in prefs.getKeys().toList()) {

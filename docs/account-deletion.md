@@ -5,9 +5,8 @@ The initial explanation and final confirmation are both required before deletion
 
 ## What the implementation deletes
 
-1. All owned, app-accessible spreadsheets named `Expense Tracker DB` whose
-   transaction header matches Pocket Ledger, plus any known active/Worker DB IDs
-   after the same ownership/name/layout checks. Drive `files.delete` permanently
+1. The locally saved active/Worker DB IDs after ownership/name/layout checks.
+   Drive `files.delete` permanently
    deletes each file, including classification/category/target metadata tabs.
    Other Drive files and the Google account are untouched.
 2. `/account/delete` verifies the Google access token with Google's userinfo
@@ -33,6 +32,8 @@ The backend capability is checked before irreversible operations.
 
 - Other devices' offline caches cannot be remotely wiped. Users should sign out
   and clear app/site data there; old builds must not be used to restore a ledger.
+- Other ledger spreadsheets not saved on this device are not discovered or
+  deleted automatically. Users should delete those files in Google Drive.
 - Cloudflare recovery backups can retain deleted records for 7 days on Free or
   30 days on Paid. Google controls its own backend retention. Avoid claiming
   immediate erasure from all provider backups. Never restore a retired email DB

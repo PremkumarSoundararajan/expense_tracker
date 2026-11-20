@@ -37,6 +37,7 @@ import 'services/expense_category_store.dart';
 import 'services/expense_category_sheets_sync_service.dart';
 import 'services/google_drive_permission_service.dart';
 import 'services/google_sign_in_configuration.dart';
+import 'services/google_ledger_spreadsheet_service.dart';
 import 'services/google_sheets_service.dart';
 import 'services/local_transaction_store.dart';
 import 'services/account_deletion_service.dart';
@@ -69,6 +70,7 @@ import 'widgets/suggested_budget_unavailable_dialog.dart';
 import 'widgets/statement_review_dialog.dart';
 import 'widgets/statement_import_complete_dialog.dart';
 import 'utils/currency_format.dart';
+import 'utils/currency_defaults.dart';
 import 'utils/transaction_period_format.dart';
 
 final GoogleSignIn _googleSignIn = createGoogleSignIn();
@@ -411,7 +413,8 @@ class _DashboardScreenState extends State<DashboardScreen>
   bool _targetHistoryComplete = false;
   late final ExpenseCategoryStore _expenseCategoryStore;
 
-  String _currency = '\$';
+  late CurrencyOption _currencyOption;
+  String get _currency => _currencyOption.symbol;
   String _selectedCategory = 'Food / Household';
   String? _selectedCategoryId;
   List<ExpenseCategory> _expenseCategories = [];
@@ -537,6 +540,9 @@ class _DashboardScreenState extends State<DashboardScreen>
   @override
   void initState() {
     super.initState();
+    _currencyOption = currencyForLocale(
+      WidgetsBinding.instance.platformDispatcher.locale,
+    );
     WidgetsBinding.instance.addObserver(this);
     _scheduleCalendarRefresh();
     _localTransactionStore = LocalTransactionStore(
@@ -608,7 +614,16 @@ class _DashboardScreenState extends State<DashboardScreen>
         return;
       }
       final prefs = await SharedPreferences.getInstance();
-      final savedCurrency = prefs.getString('currency_symbol');
+      final isFirstCurrency =
+          !prefs.containsKey('currency_symbol') &&
+          !prefs.containsKey('currency_code');
+      final currency = await loadCurrencyPreference(
+        prefs,
+        WidgetsBinding.instance.platformDispatcher.locale,
+      );
+      if (mounted) {
+        setState(() => _currencyOption = currency);
+      }
       final savedMonthlyTarget = prefs.getDouble('monthly_target');
       final monthlyTarget = await MonthlyBudgetSnapshotStore().initialize(
         currentBudget: savedMonthlyTarget,
@@ -629,15 +644,14 @@ class _DashboardScreenState extends State<DashboardScreen>
       final categoryMappings =
           categoryData['mappings'] as List<ExpenseCategoryMapping>;
 
-      if (savedCurrency == null) {
+      if (isFirstCurrency) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted) _showCurrencyPicker();
+          if (mounted) unawaited(_showCategorySetupPrompt());
         });
       }
 
       if (mounted) {
         setState(() {
-          if (savedCurrency != null) _currency = savedCurrency;
           _monthlyTarget = monthlyTarget;
           _dailyReminderEnabled = reminderEnabled;
           _dailyReminderTime = TimeOfDay(
@@ -1006,49 +1020,54 @@ class _DashboardScreenState extends State<DashboardScreen>
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
       builder: (context) {
-        final currencies = [
-          {'symbol': '\$', 'label': 'USD / CAD / AUD (\$)'},
-          {'symbol': '₹', 'label': 'INR (₹)'},
-          {'symbol': 'RM', 'label': 'MYR (RM)'},
-          {'symbol': '€', 'label': 'EUR (€)'},
-          {'symbol': '£', 'label': 'GBP (£)'},
-        ];
-
-        return Padding(
-          padding: const EdgeInsets.all(24.0),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'Welcome to Pocket Ledger!',
-                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 8),
-              const Text('Please choose your primary currency:'),
-              const SizedBox(height: 16),
-              ...currencies.map(
-                (c) => ListTile(
-                  leading: Text(
-                    c['symbol']!,
-                    style: const TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
+        return SafeArea(
+          child: SingleChildScrollView(
+            child: Padding(
+              padding: const EdgeInsets.all(24.0),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Welcome to Pocket Ledger!',
+                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 8),
+                  const Text('Please choose your primary currency:'),
+                  const SizedBox(height: 16),
+                  ...currencyOptions.map(
+                    (c) => ListTile(
+                      leading: Text(
+                        c.symbol,
+                        style: const TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      title: Text('${c.code} (${c.symbol})'),
+                      onTap: () async {
+                        final navigator = Navigator.of(context);
+                        try {
+                          final prefs = await SharedPreferences.getInstance();
+                          if (!await prefs.setString('currency_code', c.code)) {
+                            throw StateError(
+                              'Could not save currency preference.',
+                            );
+                          }
+                          if (!mounted) return;
+                          setState(() => _currencyOption = c);
+                          navigator.pop();
+                        } catch (error) {
+                          _showMessage(
+                            'Could not save currency preference: $error',
+                          );
+                        }
+                      },
                     ),
                   ),
-                  title: Text(c['label']!),
-                  onTap: () async {
-                    final navigator = Navigator.of(context);
-                    final prefs = await SharedPreferences.getInstance();
-                    await prefs.setString('currency_symbol', c['symbol']!);
-                    if (!mounted) return;
-                    setState(() => _currency = c['symbol']!);
-                    navigator.pop();
-                    unawaited(_showCategorySetupPrompt());
-                  },
-                ),
+                ],
               ),
-            ],
+            ),
           ),
         );
       },
@@ -1074,31 +1093,13 @@ class _DashboardScreenState extends State<DashboardScreen>
         setState(() => _needsDriveAccess = false);
       }
 
-      final driveApi = drive.DriveApi(client);
       final sheetsApi = sheets.SheetsApi(client);
-
-      final fileList = await driveApi.files.list(
-        q: "name = 'Expense Tracker DB' and mimeType = 'application/vnd.google-apps.spreadsheet' and trashed = false",
-      );
-
-      if (fileList.files != null && fileList.files!.isNotEmpty) {
-        _spreadsheetId = fileList.files!.first.id;
-      } else {
-        final newSheet = sheets.Spreadsheet(
-          properties: sheets.SpreadsheetProperties(title: 'Expense Tracker DB'),
-        );
-        final created = await sheetsApi.spreadsheets.create(newSheet);
-        _spreadsheetId = created.spreadsheetId;
-
-        final headerValues = [GoogleSheetsService.transactionHeaders];
-        final valueRange = sheets.ValueRange(values: headerValues);
-        await sheetsApi.spreadsheets.values.append(
-          valueRange,
-          _spreadsheetId!,
-          'Sheet1!A1',
-          valueInputOption: 'USER_ENTERED',
-        );
-      }
+      _spreadsheetId = await GoogleLedgerSpreadsheetService(
+        driveApi: drive.DriveApi(client),
+        sheetsApi: sheetsApi,
+        preferences: await SharedPreferences.getInstance(),
+        accountEmail: widget.account.email,
+      ).resolve();
       await _fetchData();
       await _syncExpenseCategories(preferLocal: false);
       try {
@@ -1983,7 +1984,12 @@ class _DashboardScreenState extends State<DashboardScreen>
       throw StateError('Could not resolve the Expense Tracker DB spreadsheet.');
     }
 
-    await preferences.setString(_workerSpreadsheetPreferenceKey, spreadsheetId);
+    if (!await preferences.setString(
+      _workerSpreadsheetPreferenceKey,
+      spreadsheetId,
+    )) {
+      throw StateError('Could not save the import spreadsheet ID.');
+    }
     if (mounted) setState(() => _workerSpreadsheetId = spreadsheetId);
     return spreadsheetId;
   }
@@ -1993,7 +1999,12 @@ class _DashboardScreenState extends State<DashboardScreen>
       throw StateError('Cloudflare did not return a valid spreadsheet ID.');
     }
     final preferences = await SharedPreferences.getInstance();
-    await preferences.setString(_workerSpreadsheetPreferenceKey, spreadsheetId);
+    if (!await preferences.setString(
+      _workerSpreadsheetPreferenceKey,
+      spreadsheetId,
+    )) {
+      throw StateError('Could not save the import spreadsheet ID.');
+    }
     if (mounted) setState(() => _workerSpreadsheetId = spreadsheetId);
   }
 
@@ -2328,6 +2339,10 @@ class _DashboardScreenState extends State<DashboardScreen>
         categoryConfig: _categoryConfiguration,
       );
       final result = jsonDecode(importResponse.body) as Map<String, dynamic>;
+      if (result['spreadsheetId'] != targetSpreadsheetId ||
+          result['spreadsheetCreated'] == true) {
+        throw StateError('The Worker returned a different spreadsheet target.');
+      }
       final importCreatedSpreadsheet = result['spreadsheetCreated'] == true;
       await _rememberWorkerSpreadsheetId(
         result['spreadsheetId']?.toString() ?? targetSpreadsheetId,
@@ -3816,7 +3831,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                     iconSize: 19,
                   ),
                   title: const Text('Currency'),
-                  subtitle: Text(_currency),
+                  subtitle: Text('${_currencyOption.code} ($_currency)'),
                   onTap: _showCurrencyPicker,
                 ),
                 const Divider(height: 1),

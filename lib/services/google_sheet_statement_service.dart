@@ -39,8 +39,7 @@ class GoogleSheetStatementService {
     } on sheets.DetailedApiRequestError catch (error) {
       throw GoogleSheetImportException(switch (error.status) {
         401 => 'Reconnect your Google account, then try again.',
-        403 => 'This Google account cannot read the sheet. Check its sharing access and Google Sheets permission.',
-        404 => 'Sheet not found. Check the link and that it is shared with your signed-in Google account.',
+        403 || 404 => 'This sheet is unavailable to Pocket Ledger. A .gsheet shortcut does not grant app access; export it as CSV or XLSX and select that file instead.',
         429 => 'Google is busy. Please wait a moment and try again.',
         _ => 'Could not read the Google Sheet. Please try again.',
       });

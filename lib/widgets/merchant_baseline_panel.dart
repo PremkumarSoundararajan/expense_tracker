@@ -1487,6 +1487,7 @@ class _MerchantBaselinePanelState extends State<MerchantBaselinePanel> {
     Color color,
     int count,
     double amount,
+    double total,
   ) {
     final open = _activeSection == section;
     return Semantics(
@@ -1514,7 +1515,7 @@ class _MerchantBaselinePanelState extends State<MerchantBaselinePanel> {
                     Text(label, style: Theme.of(context).textTheme.titleMedium),
                     const SizedBox(height: 4),
                     Text(
-                      '$count ${count == 1 ? 'merchant' : 'merchants'} · ${money(amount)}',
+                      '$count ${count == 1 ? 'merchant' : 'merchants'} · ${money(amount)} · ${(total <= 0 ? 0.0 : amount / total * 100).toStringAsFixed(1)}% of spending',
                       style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                         color: Theme.of(context).colorScheme.onSurfaceVariant,
                       ),
@@ -1756,6 +1757,7 @@ class _MerchantBaselinePanelState extends State<MerchantBaselinePanel> {
                     section.$3,
                     section.$4,
                     section.$5,
+                    total,
                   ),
                   if (_activeSection == section.$1)
                     SizedBox(
@@ -1826,14 +1828,19 @@ class _MerchantBaselinePanelState extends State<MerchantBaselinePanel> {
                               const Text('Choose a group to view merchants.'),
                             if (showReview) ...[
                               const SizedBox(height: 8),
-                              Text(
-                                '$scope · ${filtered.length} merchants · ${money(selectedAmount)} · ${(total <= 0 ? 0.0 : selectedAmount / total * 100).toStringAsFixed(1)}% of spending',
-                                key: const ValueKey('merchant-coverage-scope'),
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w600,
-                                  fontSize: 12,
+                              if (_view == 'focus' ||
+                                  _view == 'unknown' ||
+                                  _query.trim().isNotEmpty)
+                                Text(
+                                  '$scope · ${filtered.length} merchants · ${money(selectedAmount)} · ${(total <= 0 ? 0.0 : selectedAmount / total * 100).toStringAsFixed(1)}% of spending',
+                                  key: const ValueKey(
+                                    'merchant-coverage-scope',
+                                  ),
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w600,
+                                    fontSize: 12,
+                                  ),
                                 ),
-                              ),
                               if (_query.trim().isNotEmpty && _view == 'focus')
                                 const Text(
                                   'Search includes all unclassified merchants, beyond the coverage target.',

@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:googleapis/drive/v3.dart' as drive;
-import 'package:googleapis/sheets/v4.dart' as sheets;
 import 'package:pocket_ledger/services/google_drive_permission_service.dart';
 
 void main() {
@@ -43,13 +42,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(await permissionResult, isTrue);
-    expect(
-      requestedScopes,
-      containsAll([
-        drive.DriveApi.driveFileScope,
-        sheets.SheetsApi.spreadsheetsScope,
-      ]),
-    );
+    expect(requestedScopes, [drive.DriveApi.driveFileScope]);
     expect(await service.hasDriveWriteScope(), isTrue);
   });
 }

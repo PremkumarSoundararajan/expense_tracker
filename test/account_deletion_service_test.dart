@@ -16,6 +16,8 @@ void main() {
       'financial_baseline_mappings_v2_$email': 'baseline',
       'expense_categories_v1_$email': 'categories',
       'worker_spreadsheet_id_$email': 'db',
+      'ledger_spreadsheet_id_$email': 'db',
+      'currency_code': 'INR',
       'monthly_target': 100.0,
       'budget_snapshot_2026_11': 100.0,
       'transaction_cache_v1_someone@example.com': 'other user',
@@ -79,6 +81,7 @@ void main() {
         lessThan(calls.indexOf('POST /revoke')),
       );
       expect(calls.last, 'signOut');
+      expect(calls, isNot(contains('GET /drive/v3/files')));
       final prefs = await SharedPreferences.getInstance();
       expect(prefs.getKeys(), {'transaction_cache_v1_someone@example.com'});
       expect(
@@ -127,7 +130,8 @@ void main() {
               'mimeType': 'application/vnd.google-apps.spreadsheet',
             });
           }
-          if (unsafe == 'wrong-header' && r.url.host == 'sheets.googleapis.com') {
+          if (unsafe == 'wrong-header' &&
+              r.url.host == 'sheets.googleapis.com') {
             return json({
               'values': [
                 ['Personal notes'],

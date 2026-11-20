@@ -327,13 +327,24 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('Exclude all merchants <'), findsOneWidget);
       expect(
-        find.text(r'3 merchants · $200 · 18.2% of spending'),
+        find.descendant(
+          of: find.byKey(const ValueKey('na-live-preview')),
+          matching: find.text(r'3 merchants · $200 · 18.2% of spending'),
+          matchRoot: true,
+        ),
         findsOneWidget,
       );
       expect(store.records.values.where((r) => r['na'] == true), isEmpty);
       await tester.enterText(find.byKey(const ValueKey('na-threshold')), '50');
       await tester.pumpAndSettle();
-      expect(find.text(r'0 merchants · $0 · 0.0% of spending'), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byKey(const ValueKey('na-live-preview')),
+          matching: find.text(r'0 merchants · $0 · 0.0% of spending'),
+          matchRoot: true,
+        ),
+        findsOneWidget,
+      );
       await tester.enterText(
         find.byKey(const ValueKey('na-threshold')),
         '1001',
